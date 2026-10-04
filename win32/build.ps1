@@ -14,7 +14,7 @@ Write-Host '=== build console test ===' -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw 'console build failed' }
 
 Write-Host '=== build GUI ===' -ForegroundColor Cyan
-& $tcc -O2 '-Wl,-subsystem,windows' (Join-Path $PSScriptRoot 'guard.c') -lcomdlg32 -lshell32 -o (Join-Path $root '_tools\guardgui.exe')
+& $tcc -O2 '-Wl,-subsystem,windows' (Join-Path $PSScriptRoot 'guard.c') -lcomdlg32 -lshell32 -lole32 -lcomctl32 -o (Join-Path $root '_tools\guardgui.exe')
 if ($LASTEXITCODE -ne 0) { throw 'GUI build failed' }
 
 Write-Host '=== inject icon ===' -ForegroundColor Cyan

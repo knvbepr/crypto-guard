@@ -4,10 +4,7 @@ const zlib = require('zlib');
 
 const ROOT = path.resolve(__dirname, '..');
 
-const TOP = [0x40, 0x54, 0xC8];
-const BOTTOM = [0x2E, 0x3D, 0x96];
-
-function lerp(a, b, t) { return a + (b - a) * t; }
+const BG = [0x40, 0x54, 0xC8];
 
 function inRoundRect(x, y, x0, y0, x1, y1, r) {
   const cx = Math.min(Math.max(x, x0 + r), x1 - r);
@@ -17,18 +14,11 @@ function inRoundRect(x, y, x0, y0, x1, y1, r) {
   return dx * dx + dy * dy <= r * r;
 }
 
-function sample(u, v, rounded) {
-  let r = 0, g = 0, b = 0, a = 0;
+function sampleFlat(u, v, rounded) {
   const inBg = rounded
     ? inRoundRect(u, v, 0.03, 0.03, 0.97, 0.97, 0.19)
     : true;
-  if (inBg) {
-    const t = v;
-    r = lerp(TOP[0], BOTTOM[0], t);
-    g = lerp(TOP[1], BOTTOM[1], t);
-    b = lerp(TOP[2], BOTTOM[2], t);
-    a = 255;
-  }
+  if (!inBg) return [0, 0, 0, 0];
   const cx = 0.5, cy = 0.445, ro = 0.150, ri = 0.102;
   const dxc = u - cx, dyc = v - cy;
   const d = Math.sqrt(dxc * dxc + dyc * dyc);
@@ -37,19 +27,13 @@ function sample(u, v, rounded) {
   const inLegR = u >= 0.602 && u <= 0.650 && v >= cy - 0.004 && v <= 0.530;
   const inBody = inRoundRect(u, v, 0.300, 0.500, 0.700, 0.790, 0.055);
   if (inRing || inLegL || inLegR || inBody) {
-    r = 255; g = 255; b = 255; a = 255;
     const kx = u - 0.5, ky = v - 0.605;
     const inKey = (kx * kx + ky * ky <= 0.047 * 0.047) ||
       (u >= 0.4885 && u <= 0.5115 && v >= 0.605 && v <= 0.690);
-    if (inKey) {
-      const t = v;
-      r = lerp(TOP[0], BOTTOM[0], t);
-      g = lerp(TOP[1], BOTTOM[1], t);
-      b = lerp(TOP[2], BOTTOM[2], t);
-      a = 255;
-    }
+    if (inKey) return [BG[0], BG[1], BG[2], 255];
+    return [255, 255, 255, 255];
   }
-  return [r, g, b, a];
+  return [BG[0], BG[1], BG[2], 255];
 }
 
 function renderRGBA(size, rounded) {
@@ -62,7 +46,7 @@ function renderRGBA(size, rounded) {
         for (let sx = 0; sx < ss; sx++) {
           const u = (px + (sx + 0.5) / ss) / size;
           const v = (py + (sy + 0.5) / ss) / size;
-          const c = sample(u, v, rounded);
+          const c = sampleFlat(u, v, rounded);
           r += c[0]; g += c[1]; b += c[2]; a += c[3];
         }
       }
@@ -72,6 +56,73 @@ function renderRGBA(size, rounded) {
       out[o + 1] = Math.round(g / n);
       out[o + 2] = Math.round(b / n);
       out[o + 3] = Math.round(a / n);
+    }
+  }
+  return out;
+}
+
+const PX = {
+  BK: [0, 0, 0, 255],
+  WH: [255, 255, 255, 255],
+  FACE: [192, 192, 192, 255],
+  HI: [255, 255, 255, 255],
+  LO: [128, 128, 128, 255],
+  DK: [64, 64, 64, 255],
+  NAVY: [0, 0, 128, 255],
+  NONE: [0, 0, 0, 0]
+};
+
+function pixelArt32() {
+  const N = 32;
+  const out = Buffer.alloc(N * N * 4);
+  for (let py = 0; py < N; py++) {
+    for (let px = 0; px < N; px++) {
+      const fx = px + 0.5, fy = py + 0.5;
+      let c = PX.NONE;
+      if (px >= 1 && px <= 30 && py >= 1 && py <= 30) {
+        c = PX.FACE;
+        if (px <= 2 || py <= 2) c = PX.HI;
+        if (px >= 29 || py >= 29) c = PX.DK;
+        if (px === 1 || py === 1 || px === 30 || py === 30) c = PX.BK;
+        if (px === 2 && py === 2) c = PX.HI;
+      }
+      const dx = fx - 16.0, dy = fy - 14.0;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (fy <= 14.5 && d <= 6.8 && d >= 3.8) {
+        c = PX.LO;
+        if (d >= 6.1 || d <= 4.5) c = PX.BK;
+        else if (fx < 15.0 && d > 4.5 && d < 5.4) c = PX.WH;
+      }
+      if (px >= 7 && px <= 25 && py >= 15 && py <= 27) {
+        if (px === 7 || px === 25 || py === 15 || py === 27) c = PX.BK;
+        else if (px === 8 || py === 16) c = PX.HI;
+        else if (px === 24 || py === 26) c = PX.LO;
+        else c = PX.FACE;
+      }
+      const kx = fx - 16.0, ky = fy - 20.0;
+      const inKey = (kx * kx + ky * ky <= 2.6 * 2.6) ||
+        (px >= 15 && px <= 16 && py >= 20 && py <= 24);
+      if (inKey && px > 7 && px < 25 && py > 15 && py < 27) c = PX.NAVY;
+      const o = (py * N + px) * 4;
+      out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2]; out[o + 3] = c[3];
+    }
+  }
+  return out;
+}
+
+function renderPixelArt(size) {
+  const base = pixelArt32();
+  const out = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const sx = Math.min(31, Math.floor(x * 32 / size));
+      const sy = Math.min(31, Math.floor(y * 32 / size));
+      const si = (sy * 32 + sx) * 4;
+      const di = (y * size + x) * 4;
+      out[di] = base[si];
+      out[di + 1] = base[si + 1];
+      out[di + 2] = base[si + 2];
+      out[di + 3] = base[si + 3];
     }
   }
   return out;
@@ -148,10 +199,10 @@ function bmpEntry(rgba, size) {
 function buildIco() {
   const entries = [];
   for (const size of [16, 32, 48]) {
-    entries.push({ size, data: bmpEntry(renderRGBA(size, true), size) });
+    entries.push({ size, data: bmpEntry(renderPixelArt(size), size) });
   }
   for (const size of [64, 128, 256]) {
-    entries.push({ size, data: pngEncode(renderRGBA(size, true), size, size) });
+    entries.push({ size, data: pngEncode(renderPixelArt(size), size, size) });
   }
   const header = Buffer.alloc(6 + entries.length * 16);
   header.writeUInt16LE(0, 0);

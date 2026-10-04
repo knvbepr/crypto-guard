@@ -118,6 +118,13 @@ static int crypto_init(void) {
 }
 
 static void random_bytes(unsigned char *buf, int len) {
+  if (!P_Rand) {
+    if (crypto_init()) {
+      int i;
+      for (i = 0; i < len; i++) buf[i] = (unsigned char)(GetTickCount() * (unsigned)(i + 3));
+      return;
+    }
+  }
   P_Rand(0, buf, (ULONG)len, 2);
 }
 
@@ -952,9 +959,51 @@ int main(int argc, char **argv) {
 #define ID_BTN_GO 110
 #define ID_EDIT_LOG 111
 #define ID_LBL_HINT 112
+#define ID_BTN_RAND 113
 
-static HWND g_hList, g_hPwd, g_hGo, g_hLog, g_hChk, g_hLblPwd, g_hMain;
+#define IDR_HINT 201
+#define IDR_LIST 202
+#define IDR_BTN_CLOSE 203
+#define IDR_BTN_SAVEALL 204
+#define IDR_BTN_SAVESEL 205
+
+#define IDP_EDIT 302
+#define IDP_BTN_CLOSE 308
+#define IDP_BTN_SAVE 309
+
+void *WINAPI CreateStreamOnHGlobal(void *, int, void **);
+void *WINAPI ShellExecuteW(void *, const wchar_t *, const wchar_t *, const wchar_t *, const wchar_t *, int);
+
+typedef struct {
+  void *u0[5];
+  LONG (WINAPI *Seek)(void *, long long, unsigned long, unsigned long long *);
+} VtStream;
+
+typedef struct {
+  LONG (WINAPI *QueryInterface)(void *, const void *, void **);
+  unsigned long (WINAPI *AddRef)(void *);
+  unsigned long (WINAPI *Release)(void *);
+} VtUnknown;
+
+#define VTBL(p) (*(void ***)(p))
+
+typedef int (WINAPI *FN_GdiplusStartup)(unsigned long *, void *, void *);
+typedef int (WINAPI *FN_GdipCreateBitmapFromStream)(void *, void **);
+typedef int (WINAPI *FN_GdipCreateHBITMAPFromBitmap)(void *, void **, unsigned long);
+typedef int (WINAPI *FN_GdipDisposeImage)(void *);
+typedef int (WINAPI *FN_GdipGetImageWidth)(void *, unsigned int *);
+typedef int (WINAPI *FN_GdipGetImageHeight)(void *, unsigned int *);
+
+typedef struct {
+  unsigned int GdiplusVersion;
+  void *DebugEventCallback;
+  int SuppressBackgroundThread;
+  int SuppressExternalCodecs;
+} GUARD_GDIINPUT;
+
+static HWND g_hList, g_hPwd, g_hGo, g_hLog, g_hChk, g_hLblPwd, g_hMain, g_hRand;
 static wchar_t **g_files = 0;
+static unsigned char *g_checked = 0;
 static int g_count = 0, g_cap = 0;
 static int g_mode = 0;
 static HFONT g_font;
@@ -962,6 +1011,56 @@ static HFONT g_font;
 static wchar_t *g_filter_open;
 static wchar_t *g_filter_enc;
 static wchar_t *g_filter_zip;
+
+typedef struct {
+  Entry e;
+  int checked;
+} ResItem;
+
+static ResItem *g_res = 0;
+static int g_resCount = 0;
+static int g_resFail = 0;
+static HWND g_hResWnd = 0, g_hResList = 0, g_resOwner = 0;
+
+static HWND g_hPrevWnd = 0, g_pvOwner = 0;
+static ResItem *g_pvItem = 0;
+static int g_pvKind = 2;
+static void *g_pvBmp = 0;
+static int g_pvBmpW = 0, g_pvBmpH = 0;
+
+
+static HMODULE g_gdip;
+static FN_GdiplusStartup P_GdipStartup;
+static FN_GdipCreateBitmapFromStream P_GdipCreateBitmapFromStream;
+static FN_GdipCreateHBITMAPFromBitmap P_GdipCreateHBITMAPFromBitmap;
+static FN_GdipDisposeImage P_GdipDisposeImage;
+static FN_GdipGetImageWidth P_GdipGetImageWidth;
+static FN_GdipGetImageHeight P_GdipGetImageHeight;
+static unsigned long g_gdipToken;
+static int g_dpi = 96;
+
+static int S(int v) {
+  return (v * g_dpi + 48) / 96;
+}
+
+typedef int (WINAPI *FN_SetProcessDPIAware)(void);
+typedef int (WINAPI *FN_SetProcessDpiAwarenessContext)(void *);
+
+static void enable_dpi(void) {
+  HMODULE u = GetModuleHandleW(L"user32.dll");
+  if (!u) return;
+  {
+    FN_SetProcessDpiAwarenessContext f2 = (FN_SetProcessDpiAwarenessContext)GetProcAddress(u, "SetProcessDpiAwarenessContext");
+    if (f2) {
+      f2((void *)-4);
+      return;
+    }
+  }
+  {
+    FN_SetProcessDPIAware f1 = (FN_SetProcessDPIAware)GetProcAddress(u, "SetProcessDPIAware");
+    if (f1) f1();
+  }
+}
 
 static wchar_t *make_filter(const char *u8) {
   size_t len = 0;
@@ -996,14 +1095,185 @@ static void log_u8(HWND hwnd, const char *text) {
   free(w);
 }
 
+static void fmt_size_text(char *out, size_t cap, size_t n) {
+  if (n < 1024) sprintf(out, "%u B", (unsigned)n);
+  else if (n < 1024 * 1024) sprintf(out, "%.1f KB", (double)n / 1024.0);
+  else sprintf(out, "%.1f MB", (double)n / 1048576.0);
+}
+
+static int ext_is(const char *name, const char *const *list, int n) {
+  const char *dot = 0, *p;
+  int i;
+  for (p = name; *p; p++) if (*p == '.') dot = p;
+  if (!dot) return 0;
+  dot++;
+  for (i = 0; i < n; i++) {
+    const char *a = dot, *b = list[i];
+    while (*a && *b && tolower((unsigned char)*a) == *b) { a++; b++; }
+    if (!*a && !*b) return 1;
+  }
+  return 0;
+}
+
+static const char *const IMG_E[] = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "avif"};
+static const char *const VID_E[] = {"mp4", "webm", "mov", "m4v", "ogv", "avi", "mkv"};
+static const char *const AUD_E[] = {"mp3", "wav", "ogg", "m4a", "aac", "flac", "opus"};
+static const char *const TXT_E[] = {"txt", "md", "json", "xml", "csv", "log", "yml", "yaml", "ini", "conf", "js", "ts", "css", "html", "htm", "py", "java", "c", "cpp", "h", "hpp", "cs", "go", "rs", "rb", "php", "sh", "bat", "sql"};
+static const char *const ZIP_E[] = {"zip"};
+
+static const char *type_of(const char *name) {
+  if (ext_is(name, IMG_E, 9)) return "image";
+  if (ext_is(name, VID_E, 7)) return "video";
+  if (ext_is(name, AUD_E, 7)) return "audio";
+  if (ext_is(name, TXT_E, 29)) return "text";
+  if (ext_is(name, ZIP_E, 1)) return "archive";
+  return "other";
+}
+
+static const char *type_label_cn(const char *t) {
+  if (!strcmp(t, "image")) return "图片";
+  if (!strcmp(t, "video")) return "视频";
+  if (!strcmp(t, "audio")) return "音频";
+  if (!strcmp(t, "text")) return "文本";
+  if (!strcmp(t, "archive")) return "压缩包";
+  return "文件";
+}
+
+static void fmt_ms(wchar_t *out, int ms) {
+  if (ms < 0) ms = 0;
+  wsprintfW(out, L"%d:%02d", ms / 60000, (ms / 1000) % 60);
+}
+
+
+
+static int gdip_init(void) {
+  GUARD_GDIINPUT in;
+  if (g_gdip) return P_GdipStartup ? 0 : -1;
+  g_gdip = LoadLibraryW(L"gdiplus.dll");
+  if (!g_gdip) return -1;
+  P_GdipStartup = (FN_GdiplusStartup)GetProcAddress(g_gdip, "GdiplusStartup");
+  P_GdipCreateBitmapFromStream = (FN_GdipCreateBitmapFromStream)GetProcAddress(g_gdip, "GdipCreateBitmapFromStream");
+  P_GdipCreateHBITMAPFromBitmap = (FN_GdipCreateHBITMAPFromBitmap)GetProcAddress(g_gdip, "GdipCreateHBITMAPFromBitmap");
+  P_GdipDisposeImage = (FN_GdipDisposeImage)GetProcAddress(g_gdip, "GdipDisposeImage");
+  P_GdipGetImageWidth = (FN_GdipGetImageWidth)GetProcAddress(g_gdip, "GdipGetImageWidth");
+  P_GdipGetImageHeight = (FN_GdipGetImageHeight)GetProcAddress(g_gdip, "GdipGetImageHeight");
+  if (!P_GdipStartup || !P_GdipCreateBitmapFromStream || !P_GdipCreateHBITMAPFromBitmap || !P_GdipDisposeImage) {
+    P_GdipStartup = 0;
+    return -1;
+  }
+  in.GdiplusVersion = 1;
+  in.DebugEventCallback = 0;
+  in.SuppressBackgroundThread = 0;
+  in.SuppressExternalCodecs = 0;
+  if (P_GdipStartup(&g_gdipToken, &in, 0)) {
+    P_GdipStartup = 0;
+    return -1;
+  }
+  return 0;
+}
+
+static int pv_load_image(const unsigned char *data, size_t len) {
+  HGLOBAL hg;
+  void *lock;
+  void *st = 0, *bmp = 0, *hb = 0;
+  if (gdip_init()) return -1;
+  hg = GlobalAlloc(2, len ? len : 1);
+  if (!hg) return -1;
+  lock = GlobalLock(hg);
+  if (len) memcpy(lock, data, len);
+  GlobalUnlock(hg);
+  if (CreateStreamOnHGlobal(hg, 1, &st) || !st) {
+    GlobalFree(hg);
+    return -1;
+  }
+  {
+    unsigned long long dummy = 0;
+    ((VtStream *)VTBL(st))->Seek(st, 0, 0, &dummy);
+  }
+  if (P_GdipCreateBitmapFromStream(st, &bmp) || !bmp) {
+    ((VtUnknown *)VTBL(st))->Release(st);
+    return -1;
+  }
+  if (P_GdipCreateHBITMAPFromBitmap(bmp, &hb, 0xFFFFFFFF) || !hb) {
+    P_GdipDisposeImage(bmp);
+    ((VtUnknown *)VTBL(st))->Release(st);
+    return -1;
+  }
+  {
+    unsigned int w = 0, h = 0;
+    if (P_GdipGetImageWidth) P_GdipGetImageWidth(bmp, &w);
+    if (P_GdipGetImageHeight) P_GdipGetImageHeight(bmp, &h);
+    g_pvBmpW = (int)w;
+    g_pvBmpH = (int)h;
+  }
+  P_GdipDisposeImage(bmp);
+  ((VtUnknown *)VTBL(st))->Release(st);
+  g_pvBmp = hb;
+  return 0;
+}
+
+static wchar_t *build_text_w(const unsigned char *data, size_t len, int *truncated) {
+  size_t lim = len > 300 * 1024 ? 300 * 1024 : len;
+  int wlen;
+  wchar_t *w;
+  *truncated = lim < len;
+  wlen = MultiByteToWideChar(CP_UTF8, 0, (const char *)data, (int)lim, 0, 0);
+  if (wlen <= 0 && lim > 0) return 0;
+  w = (wchar_t *)malloc((wlen + 1) * sizeof(wchar_t));
+  MultiByteToWideChar(CP_UTF8, 0, (const char *)data, (int)lim, w, wlen);
+  w[wlen] = 0;
+  return w;
+}
+
+static wchar_t *build_hex_w(const unsigned char *data, size_t len) {
+  size_t lim = len > 64 * 1024 ? 64 * 1024 : len;
+  size_t cap = ((lim + 15) / 16 + 2) * 90 + 160;
+  wchar_t *out = (wchar_t *)malloc(cap * sizeof(wchar_t));
+  wchar_t *o = out;
+  size_t off, i;
+  out[0] = 0;
+  for (off = 0; off < lim; off += 16) {
+    wchar_t line[96];
+    int pos = 0;
+    pos += wsprintfW(line + pos, L"%08X  ", (unsigned)off);
+    for (i = 0; i < 16; i++) {
+      if (off + i < lim) pos += wsprintfW(line + pos, L"%02X ", data[off + i] & 0xFF);
+      else pos += wsprintfW(line + pos, L"   ");
+      if (i == 7) {
+        line[pos++] = L' ';
+        line[pos] = 0;
+      }
+    }
+    line[pos++] = L' ';
+    for (i = 0; i < 16 && off + i < lim; i++) {
+      unsigned char c = data[off + i];
+      line[pos++] = (c >= 32 && c < 127) ? (wchar_t)c : L'.';
+    }
+    line[pos++] = L'\r';
+    line[pos++] = L'\n';
+    line[pos] = 0;
+    wcscat(o, line);
+    o += pos;
+  }
+  if (lim < len) {
+    wchar_t tail[96];
+    wsprintfW(tail, L"\r\n... (只显示前 64KB，共 %u 字节)", (unsigned)len);
+    wcscat(o, tail);
+  }
+  return out;
+}
+
 static void add_file(HWND hwnd, const wchar_t *path) {
   if (g_count == g_cap) {
     g_cap = g_cap ? g_cap * 2 : 16;
     g_files = (wchar_t **)realloc(g_files, g_cap * sizeof(wchar_t *));
+    g_checked = (unsigned char *)realloc(g_checked, g_cap);
   }
   g_files[g_count] = wcs_dup(path);
+  g_checked[g_count] = 0;
   g_count++;
-  SendMessageW(g_hList, LB_ADDSTRING, 0, (LPARAM)base_name_w(path));
+  SendMessageW(g_hList, LB_ADDSTRING, 0, 0);
+  InvalidateRect(g_hList, 0, FALSE);
 }
 
 static void clear_files(void) {
@@ -1013,14 +1283,34 @@ static void clear_files(void) {
   SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
 }
 
+static void remove_checked(HWND hwnd) {
+  int i, removed = 0;
+  for (i = g_count - 1; i >= 0; i--) {
+    if (g_checked[i]) {
+      free(g_files[i]);
+      memmove(g_files + i, g_files + i + 1, (g_count - i - 1) * sizeof(wchar_t *));
+      memmove(g_checked + i, g_checked + i + 1, (size_t)(g_count - i - 1));
+      g_count--;
+      SendMessageW(g_hList, LB_DELETESTRING, (WPARAM)i, 0);
+      removed++;
+    }
+  }
+  if (removed) InvalidateRect(g_hList, 0, FALSE);
+  else msg_u8(hwnd, "请先勾选要移除的文件。", MB_ICONINFORMATION);
+}
+
 static void set_mode(HWND hwnd, int mode) {
   g_mode = mode;
+  SendMessageW(GetDlgItem(hwnd, ID_RADIO_ENC), BM_SETCHECK, mode == 0 ? BST_CHECKED : BST_UNCHECKED, 0);
+  SendMessageW(GetDlgItem(hwnd, ID_RADIO_DEC), BM_SETCHECK, mode == 1 ? BST_CHECKED : BST_UNCHECKED, 0);
   if (mode == 0) {
     SetWindowTextW(g_hLblPwd, u82w("加密密码（至少 4 位）："));
     SetWindowTextW(g_hGo, u82w("加密并保存..."));
+    EnableWindow(g_hRand, TRUE);
   } else {
     SetWindowTextW(g_hLblPwd, u82w("解密密码（文件名无密码时使用）："));
     SetWindowTextW(g_hGo, u82w("解密并保存..."));
+    EnableWindow(g_hRand, FALSE);
   }
   clear_files();
   SetWindowTextW(g_hLog, L"");
@@ -1065,23 +1355,6 @@ static void add_files_dialog(HWND hwnd) {
   }
 }
 
-static void remove_selected(HWND hwnd) {
-  int selCount = (int)SendMessageW(g_hList, LB_GETSELCOUNT, 0, 0);
-  int *idx;
-  int i;
-  if (selCount <= 0) return;
-  idx = (int *)malloc(selCount * sizeof(int));
-  SendMessageW(g_hList, LB_GETSELITEMS, (WPARAM)selCount, (LPARAM)idx);
-  for (i = selCount - 1; i >= 0; i--) {
-    int k = idx[i];
-    free(g_files[k]);
-    memmove(g_files + k, g_files + k + 1, (g_count - k - 1) * sizeof(wchar_t *));
-    g_count--;
-    SendMessageW(g_hList, LB_DELETESTRING, (WPARAM)k, 0);
-  }
-  free(idx);
-}
-
 static int save_dialog(HWND hwnd, wchar_t *buf, int maxLen, const wchar_t *defExt, const wchar_t *filter) {
   OPENFILENAMEW ofn;
   memset(&ofn, 0, sizeof(ofn));
@@ -1100,8 +1373,542 @@ static void busy(HWND hwnd, int on) {
   EnableWindow(GetDlgItem(hwnd, ID_BTN_ADD), !on);
   EnableWindow(GetDlgItem(hwnd, ID_BTN_REMOVE), !on);
   EnableWindow(GetDlgItem(hwnd, ID_BTN_CLEAR), !on);
+  EnableWindow(g_hRand, !on && g_mode == 0);
   SetCursor(LoadCursorW(0, on ? (LPCWSTR)32514 : (LPCWSTR)32512));
   UpdateWindow(hwnd);
+}
+
+static void draw_row_bg(HDC dc, RECT *rc) {
+  HBRUSH bg = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
+  FillRect(dc, rc, bg);
+  DeleteObject(bg);
+}
+
+static void draw_row_line(HDC dc, RECT *rc) {
+  RECT ln;
+  HBRUSH br = CreateSolidBrush(GetSysColor(COLOR_3DSHADOW));
+  ln.left = rc->left + S(4);
+  ln.right = rc->right - S(4);
+  ln.bottom = rc->bottom;
+  ln.top = rc->bottom - 1;
+  FillRect(dc, &ln, br);
+  DeleteObject(br);
+}
+
+static void draw_checkbox(HDC dc, RECT *rc, int checked) {
+  RECT cb, e;
+  int h = rc->bottom - rc->top;
+  HBRUSH br;
+  cb.right = rc->right - S(8);
+  cb.left = cb.right - S(16);
+  cb.top = rc->top + (h - S(14)) / 2;
+  cb.bottom = cb.top + S(14);
+  br = CreateSolidBrush(RGB(255, 255, 255));
+  FillRect(dc, &cb, br);
+  DeleteObject(br);
+  br = CreateSolidBrush(RGB(70, 70, 70));
+  e.left = cb.left; e.right = cb.right; e.top = cb.top; e.bottom = cb.top + 1;
+  FillRect(dc, &e, br);
+  e.left = cb.left; e.right = cb.left + 1; e.top = cb.top; e.bottom = cb.bottom;
+  FillRect(dc, &e, br);
+  e.left = cb.left; e.right = cb.right; e.top = cb.bottom - 1; e.bottom = cb.bottom;
+  FillRect(dc, &e, br);
+  e.left = cb.right - 1; e.right = cb.right; e.top = cb.top; e.bottom = cb.bottom;
+  FillRect(dc, &e, br);
+  DeleteObject(br);
+  if (checked) {
+    HPEN pen = CreatePen(0, S(2), RGB(0, 0, 160));
+    HPEN old = (HPEN)SelectObject(dc, pen);
+    MoveToEx(dc, cb.left + S(3), cb.top + S(7), 0);
+    LineTo(dc, cb.left + S(7), cb.top + S(11));
+    LineTo(dc, cb.right - S(3), cb.top + S(3));
+    SelectObject(dc, old);
+    DeleteObject(pen);
+  }
+}
+
+static void draw_main_row(DRAWITEMSTRUCT *dis) {
+  int idx = (int)dis->itemID;
+  HDC dc = dis->hDC;
+  RECT rc = dis->rcItem;
+  RECT tr = rc;
+  const wchar_t *nameW;
+  draw_row_bg(dc, &rc);
+  if (idx < 0 || idx >= g_count) return;
+  nameW = base_name_w(g_files[idx]);
+  tr.left += S(6);
+  tr.right = rc.right - S(34);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+  DrawTextW(dc, nameW, -1, &tr, 0x20 | 0x4 | 0x8000 | 0x800);
+  draw_checkbox(dc, &rc, g_checked[idx]);
+  draw_row_line(dc, &rc);
+}
+
+static void draw_res_row(DRAWITEMSTRUCT *dis) {
+  int idx = (int)dis->itemID;
+  HDC dc = dis->hDC;
+  RECT rc = dis->rcItem;
+  RECT tr = rc;
+  char line[600];
+  char sz[40];
+  wchar_t *w;
+  ResItem *r;
+  draw_row_bg(dc, &rc);
+  if (idx < 0 || idx >= g_resCount) return;
+  r = &g_res[idx];
+  fmt_size_text(sz, sizeof(sz), r->e.size);
+  sprintf(line, "%s  (%s · %s)", r->e.name, sz, type_label_cn(type_of(r->e.name)));
+  w = u82w(line);
+  tr.left += S(6);
+  tr.right = rc.right - S(118);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+  DrawTextW(dc, w, -1, &tr, 0x20 | 0x4 | 0x8000 | 0x800);
+  free(w);
+  {
+    RECT lr;
+    wchar_t *link = u82w("预览");
+    lr.right = rc.right - S(34);
+    lr.left = lr.right - S(40);
+    lr.top = rc.top;
+    lr.bottom = rc.bottom;
+    SetTextColor(dc, RGB(0, 0, 200));
+    DrawTextW(dc, link, -1, &lr, 0x20 | 0x4 | 0x1);
+    free(link);
+    SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+  }
+  draw_checkbox(dc, &rc, r->checked);
+  draw_row_line(dc, &rc);
+}
+
+static void open_preview_for(int idx);
+
+static Entry *dedup_entries(int *outN) {
+  Entry *out = (Entry *)calloc(g_resCount, sizeof(Entry));
+  int i, j, n = 0;
+  for (i = 0; i < g_resCount; i++) {
+    char *nm = str_dup(g_res[i].e.name);
+    int dup = 1;
+    while (dup) {
+      dup = 0;
+      for (j = 0; j < n; j++) {
+        if (!strcmp(out[j].name, nm)) {
+          dup = 1;
+          break;
+        }
+      }
+      if (dup) {
+        char base[512], ext[64];
+        const char *dot = 0, *p;
+        int k = 2;
+        for (p = nm; *p; p++) if (*p == '.') dot = p;
+        if (dot) {
+          size_t bl = (size_t)(dot - nm);
+          if (bl > 500) bl = 500;
+          memcpy(base, nm, bl);
+          base[bl] = 0;
+          strncpy(ext, dot, 60);
+          ext[60] = 0;
+        } else {
+          strncpy(base, nm, 500);
+          base[500] = 0;
+          ext[0] = 0;
+        }
+        free(nm);
+        nm = (char *)malloc(700);
+        sprintf(nm, "%s(%d)%s", base, k, ext);
+        for (;;) {
+          int clash = 0;
+          for (j = 0; j < n; j++) {
+            if (!strcmp(out[j].name, nm)) {
+              clash = 1;
+              break;
+            }
+          }
+          if (!clash) break;
+          k++;
+          sprintf(nm, "%s(%d)%s", base, k, ext);
+        }
+      }
+    }
+    out[n].name = nm;
+    out[n].data = g_res[i].e.data;
+    out[n].size = g_res[i].e.size;
+    n++;
+  }
+  *outN = n;
+  return out;
+}
+
+static void res_save_checked(HWND hwnd) {
+  static wchar_t buf[4096];
+  int i, saved = 0;
+  char msg[128];
+  for (i = 0; i < g_resCount; i++) {
+    wchar_t *def;
+    if (!g_res[i].checked) continue;
+    def = u82w(g_res[i].e.name);
+    wcsncpy(buf, def, 4095);
+    buf[4095] = 0;
+    free(def);
+    if (!save_dialog(hwnd, buf, 4096, L"", g_filter_open)) break;
+    if (file_write_w(buf, g_res[i].e.data, g_res[i].e.size)) {
+      msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
+      break;
+    }
+    saved++;
+  }
+  if (saved) {
+    sprintf(msg, "已逐个保存 %d 个文件。", saved);
+    msg_u8(hwnd, msg, MB_ICONINFORMATION);
+  }
+}
+
+static void res_save_all(HWND hwnd) {
+  static wchar_t buf[4096];
+  SYSTEMTIME st;
+  if (g_resCount == 1) {
+    wchar_t *def = u82w(g_res[0].e.name);
+    wcsncpy(buf, def, 4095);
+    buf[4095] = 0;
+    free(def);
+    if (save_dialog(hwnd, buf, 4096, L"", g_filter_open)) {
+      if (file_write_w(buf, g_res[0].e.data, g_res[0].e.size)) msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
+      else msg_u8(hwnd, "解密完成，已保存。", MB_ICONINFORMATION);
+    }
+    return;
+  }
+  GetLocalTime(&st);
+  {
+    wchar_t *fmt = u82w("解密文件_%04d%02d%02d.zip");
+    wsprintfW(buf, fmt, st.wYear, st.wMonth, st.wDay);
+    free(fmt);
+  }
+  if (save_dialog(hwnd, buf, 4096, L"zip", g_filter_zip)) {
+    Entry *es;
+    int n = 0, i;
+    size_t zl;
+    unsigned char *zip;
+    es = dedup_entries(&n);
+    zip = zip_build(es, n, &zl);
+    if (file_write_w(buf, zip, zl)) msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
+    else {
+      char msg[128];
+      sprintf(msg, "解密完成，%d 个文件已打包保存。", n);
+      msg_u8(hwnd, msg, MB_ICONINFORMATION);
+    }
+    for (i = 0; i < n; i++) free(es[i].name);
+    free(es);
+    free(zip);
+  }
+}
+
+static void open_preview_for(int idx);
+
+static LRESULT CALLBACK ResWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+    case WM_CREATE: {
+      HWND c;
+      int i;
+      wchar_t *hint = u82w("勾选要保存的内容（点击行切换勾选，点「预览」查看）；「保存勾选」逐个保存原文件，「全部保存」打包为 ZIP。");
+      c = CreateWindowExW(0, L"STATIC", hint, WS_CHILD | WS_VISIBLE | SS_LEFT, S(16), S(10), S(612), S(36), hwnd, (HMENU)IDR_HINT, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      free(hint);
+      g_hResList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", 0,
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_NOTIFY,
+          S(16), S(52), S(612), S(300), hwnd, (HMENU)IDR_LIST, 0, 0);
+      SendMessageW(g_hResList, WM_SETFONT, (WPARAM)g_font, TRUE);
+      for (i = 0; i < g_resCount; i++) SendMessageW(g_hResList, LB_ADDSTRING, 0, 0);
+      c = CreateWindowExW(0, L"BUTTON", u82w("关闭"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(16), S(364), S(110), S(30), hwnd, (HMENU)IDR_BTN_CLOSE, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      c = CreateWindowExW(0, L"BUTTON", u82w("全部保存"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(402), S(364), S(110), S(30), hwnd, (HMENU)IDR_BTN_SAVEALL, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      c = CreateWindowExW(0, L"BUTTON", u82w("保存勾选"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, S(518), S(364), S(110), S(30), hwnd, (HMENU)IDR_BTN_SAVESEL, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      return 0;
+    }
+    case WM_MEASUREITEM: {
+      MEASUREITEMSTRUCT *mis = (MEASUREITEMSTRUCT *)lp;
+      if (mis->CtlID == IDR_LIST) {
+        mis->itemHeight = S(24);
+        return TRUE;
+      }
+      return FALSE;
+    }
+    case WM_DRAWITEM: {
+      DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lp;
+      if (dis->CtlID == IDR_LIST) {
+        draw_res_row(dis);
+        return TRUE;
+      }
+      return FALSE;
+    }
+    case WM_COMMAND:
+      if (LOWORD(wp) == IDR_LIST && (HIWORD(wp) == LBN_SELCHANGE || HIWORD(wp) == LBN_DBLCLK)) {
+        int sel = (int)SendMessageW(g_hResList, LB_GETCURSEL, 0, 0);
+        if (sel >= 0 && sel < g_resCount) {
+          if (HIWORD(wp) == LBN_DBLCLK) {
+            open_preview_for(sel);
+          } else {
+            POINT pt;
+            RECT rc;
+            GetCursorPos(&pt);
+            ScreenToClient(g_hResList, &pt);
+            SendMessageW(g_hResList, LB_GETITEMRECT, (WPARAM)sel, (LPARAM)&rc);
+            if (pt.x >= rc.right - S(74) && pt.x < rc.right - S(34)) {
+              open_preview_for(sel);
+            } else {
+              g_res[sel].checked = g_res[sel].checked ? 0 : 1;
+            }
+          }
+          SendMessageW(g_hResList, LB_SETCURSEL, (WPARAM)-1, 0);
+          InvalidateRect(g_hResList, 0, FALSE);
+        }
+        return 0;
+      }
+      switch (LOWORD(wp)) {
+        case IDR_BTN_CLOSE:
+          DestroyWindow(hwnd);
+          return 0;
+        case IDR_BTN_SAVEALL:
+          res_save_all(hwnd);
+          return 0;
+        case IDR_BTN_SAVESEL:
+          res_save_checked(hwnd);
+          return 0;
+      }
+      return 0;
+    case WM_CLOSE:
+      DestroyWindow(hwnd);
+      return 0;
+    case WM_DESTROY: {
+      int i;
+      for (i = 0; i < g_resCount; i++) {
+        free(g_res[i].e.name);
+        free(g_res[i].e.data);
+      }
+      free(g_res);
+      g_res = 0;
+      g_resCount = 0;
+      g_hResWnd = 0;
+      g_hResList = 0;
+      EnableWindow(g_resOwner, TRUE);
+      SetForegroundWindow(g_resOwner);
+      return 0;
+    }
+  }
+  return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static void open_results(HWND owner, int failCount) {
+  static int clsReg = 0;
+  wchar_t title[128];
+  wchar_t *fmt;
+  g_resFail = failCount;
+  g_resOwner = owner;
+  if (!clsReg) {
+    WNDCLASSEXW wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = ResWndProc;
+    wc.hInstance = GetModuleHandleW(0);
+    wc.hCursor = LoadCursorW(0, (LPCWSTR)32512);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.lpszClassName = L"GuardResultsWnd";
+    RegisterClassExW(&wc);
+    clsReg = 1;
+  }
+  fmt = u82w("解密结果 - 成功 %d 个，失败 %d 个");
+  wsprintfW(title, fmt, g_resCount, failCount);
+  free(fmt);
+  g_hResWnd = CreateWindowExW(0, L"GuardResultsWnd", title,
+      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+      CW_USEDEFAULT, CW_USEDEFAULT, S(660), S(440), owner, 0, GetModuleHandleW(0), 0);
+  EnableWindow(owner, FALSE);
+  ShowWindow(g_hResWnd, SW_SHOW);
+  UpdateWindow(g_hResWnd);
+}
+
+
+
+
+
+
+static void open_external(const char *name, const unsigned char *data, size_t len) {
+  wchar_t tmp[MAX_PATH];
+  wchar_t path[MAX_PATH];
+  wchar_t *nw;
+  unsigned long n = GetTempPathW(MAX_PATH, tmp);
+  if (n == 0 || n > MAX_PATH - 80) {
+    msg_u8(g_hResWnd ? g_hResWnd : g_hMain, "无法获取临时目录。", MB_ICONERROR);
+    return;
+  }
+  nw = u82w(name);
+  wsprintfW(path, L"%sguard_preview_%lu_%s", tmp, (unsigned long)GetTickCount(), nw);
+  free(nw);
+  if (file_write_w(path, data, len)) {
+    msg_u8(g_hResWnd ? g_hResWnd : g_hMain, "写入临时文件失败。", MB_ICONERROR);
+    return;
+  }
+  if ((long)(long long)ShellExecuteW(0, L"open", path, 0, 0, 1) <= 32) {
+    msg_u8(g_hResWnd ? g_hResWnd : g_hMain, "无法启动系统默认播放器，请检查系统文件关联。", MB_ICONERROR);
+  }
+}
+
+static void open_preview_for(int idx) {
+  ResItem *r;
+  const char *t;
+  if (idx < 0 || idx >= g_resCount) return;
+  r = &g_res[idx];
+  t = type_of(r->e.name);
+  g_pvItem = r;
+  g_pvBmp = 0;
+  g_pvBmpW = 0;
+  g_pvBmpH = 0;
+  if (!strcmp(t, "image")) {
+    g_pvKind = pv_load_image(r->e.data, r->e.size) == 0 ? 0 : 2;
+  } else if (!strcmp(t, "text")) {
+    int trunc = 0;
+    g_pvKind = build_text_w(r->e.data, r->e.size, &trunc) ? 1 : 2;
+  } else if (!strcmp(t, "audio") || !strcmp(t, "video")) {
+    open_external(r->e.name, r->e.data, r->e.size);
+    return;
+  } else {
+    g_pvKind = 2;
+  }
+  g_pvOwner = g_hResWnd ? g_hResWnd : g_hMain;
+  {
+    wchar_t wtitle[512];
+    wchar_t *fmt = u82w("预览 - %s");
+    wchar_t *nw = u82w(r->e.name);
+    int winW = S(680), winH = S(560);
+    wsprintfW(wtitle, fmt, nw);
+    free(fmt);
+    free(nw);
+    g_hPrevWnd = CreateWindowExW(0, L"GuardPreviewWndX", wtitle,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, winW, winH, g_pvOwner, 0, GetModuleHandleW(0), 0);
+  }
+  EnableWindow(g_pvOwner, FALSE);
+  ShowWindow(g_hPrevWnd, SW_SHOW);
+  UpdateWindow(g_hPrevWnd);
+}
+
+static LRESULT CALLBACK PrevWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+static void prev_register(void) {
+  WNDCLASSEXW wc;
+  memset(&wc, 0, sizeof(wc));
+  wc.cbSize = sizeof(wc);
+  wc.lpfnWndProc = PrevWndProc;
+  wc.hInstance = GetModuleHandleW(0);
+  wc.hCursor = LoadCursorW(0, (LPCWSTR)32512);
+  wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+  wc.lpszClassName = L"GuardPreviewWndX";
+  RegisterClassExW(&wc);
+}
+
+static LRESULT CALLBACK PrevWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+    case WM_PAINT: {
+      PAINTSTRUCT ps;
+      HDC dc = BeginPaint(hwnd, &ps);
+      if (g_pvKind == 0) {
+        RECT rc;
+        HBRUSH wb;
+        GetClientRect(hwnd, &rc);
+        wb = CreateSolidBrush(RGB(255, 255, 255));
+        FillRect(dc, &rc, wb);
+        DeleteObject(wb);
+        if (g_pvBmp && g_pvBmpW > 0) {
+          HDC mem = CreateCompatibleDC(dc);
+          void *old = SelectObject(mem, g_pvBmp);
+          int maxW = rc.right - S(32), maxH = rc.bottom - S(76);
+          double sx = (double)maxW / g_pvBmpW, sy = (double)maxH / g_pvBmpH;
+          double sc = sx < sy ? sx : sy;
+          int dw = (int)(g_pvBmpW * sc), dh = (int)(g_pvBmpH * sc);
+          int dx = (rc.right - dw) / 2;
+          int dy = (rc.bottom - S(60) - dh) / 2 + S(8);
+          if (dw < 1) dw = 1;
+          if (dh < 1) dh = 1;
+          SetStretchBltMode(dc, HALFTONE);
+          StretchBlt(dc, dx, dy, dw, dh, mem, 0, 0, g_pvBmpW, g_pvBmpH, SRCCOPY);
+          SelectObject(mem, old);
+          DeleteDC(mem);
+        } else {
+          FillRect(dc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
+        }
+      }
+(hwnd, &ps);
+      return 0;
+    }
+    case WM_CREATE: {
+      HWND c;
+      int btnY = S(460);
+      if (g_pvKind == 1 || g_pvKind == 2) {
+        HFONT mf = CreateFontW(-S(13), 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, L"Courier New");
+        wchar_t *text;
+        c = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", 0,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_NOHIDESEL,
+            S(16), S(12), S(632), S(436), hwnd, (HMENU)IDP_EDIT, 0, 0);
+        SendMessageW(c, WM_SETFONT, (WPARAM)(mf ? mf : g_font), TRUE);
+        SendMessageW(c, EM_SETLIMITTEXT, (WPARAM)0x7FFFFFF0, 0);
+        if (g_pvKind == 1) {
+          int trunc = 0;
+          text = build_text_w(g_pvItem->e.data, g_pvItem->e.size, &trunc);
+          if (!text) {
+            text = build_hex_w(g_pvItem->e.data, g_pvItem->e.size);
+            trunc = 0;
+            g_pvKind = 2;
+          }
+        } else {
+          text = build_hex_w(g_pvItem->e.data, g_pvItem->e.size);
+        }
+        if (text) {
+          SetWindowTextW(c, text);
+          free(text);
+        }
+      }
+      c = CreateWindowExW(0, L"BUTTON", u82w("关闭"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(16), btnY, S(110), S(30), hwnd, (HMENU)IDP_BTN_CLOSE, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      c = CreateWindowExW(0, L"BUTTON", u82w("保存"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(538), btnY, S(110), S(30), hwnd, (HMENU)IDP_BTN_SAVE, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      return 0;
+    }
+    case WM_COMMAND:
+      switch (LOWORD(wp)) {
+        case IDP_BTN_CLOSE:
+          DestroyWindow(hwnd);
+          return 0;
+        case IDP_BTN_SAVE: {
+          static wchar_t buf[4096];
+          wchar_t *def = u82w(g_pvItem->e.name);
+          wcsncpy(buf, def, 4095);
+          buf[4095] = 0;
+          free(def);
+          if (save_dialog(hwnd, buf, 4096, L"", g_filter_open)) {
+            if (file_write_w(buf, g_pvItem->e.data, g_pvItem->e.size)) msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
+            else msg_u8(hwnd, "已保存。", MB_ICONINFORMATION);
+          }
+          return 0;
+        }
+      }
+      return 0;
+    case WM_CLOSE:
+      DestroyWindow(hwnd);
+      return 0;
+    case WM_DESTROY:
+      if (g_pvBmp) {
+        DeleteObject(g_pvBmp);
+        g_pvBmp = 0;
+      }
+      g_hPrevWnd = 0;
+      EnableWindow(g_pvOwner, TRUE);
+      SetForegroundWindow(g_pvOwner);
+      return 0;
+  }
+  return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 static void do_encrypt(HWND hwnd) {
@@ -1114,7 +1921,6 @@ static void do_encrypt(HWND hwnd) {
   wchar_t *suggested;
   static wchar_t saveBuf[4096];
   int i;
-  char line[512];
   if (g_count == 0) {
     msg_u8(hwnd, "请先添加要加密的文件。", MB_ICONINFORMATION);
     return;
@@ -1137,6 +1943,11 @@ static void do_encrypt(HWND hwnd) {
     if (!d) {
       log_u8(hwnd, "读取文件失败，已取消。");
       msg_u8(hwnd, "读取文件失败。", MB_ICONERROR);
+      for (i = 0; i < g_count; i++) {
+        if (es[i].name) free(es[i].name);
+        if (es[i].data) free(es[i].data);
+      }
+      free(es);
       busy(hwnd, 0);
       return;
     }
@@ -1206,8 +2017,8 @@ static void do_decrypt(HWND hwnd) {
   wchar_t manualPwd[128];
   Entry *outs = 0;
   int outCount = 0, outCap = 0;
+  int failCount = 0;
   int i;
-  char line[1024];
   if (g_count == 0) {
     msg_u8(hwnd, "请先添加要解密的 .enc 文件。", MB_ICONINFORMATION);
     return;
@@ -1227,6 +2038,7 @@ static void do_decrypt(HWND hwnd) {
     int r;
     if (!buf) {
       log_u8(hwnd, "读取文件失败，已跳过。");
+      failCount++;
       continue;
     }
     namePwd = extract_pwd_from_name(base_name_w(g_files[i]));
@@ -1235,6 +2047,7 @@ static void do_decrypt(HWND hwnd) {
     if (!pwdU8) {
       log_u8(hwnd, "未找到密码（文件名无密码且未输入手动密码），已跳过。");
       free(buf);
+      failCount++;
       continue;
     }
     r = container_decrypt(buf, bufLen, pwdU8, &plain, &plainLen, &plainName);
@@ -1248,6 +2061,7 @@ static void do_decrypt(HWND hwnd) {
       free(pwdU8);
       free(namePwd);
       free(buf);
+      failCount++;
       continue;
     }
     if (r) {
@@ -1255,6 +2069,7 @@ static void do_decrypt(HWND hwnd) {
       free(pwdU8);
       free(namePwd);
       free(buf);
+      failCount++;
       continue;
     }
     {
@@ -1293,95 +2108,80 @@ static void do_decrypt(HWND hwnd) {
     busy(hwnd, 0);
     return;
   }
-  if (outCount == 1) {
-    static wchar_t saveBuf[4096];
-    wchar_t *def = u82w(outs[0].name);
-    wcsncpy(saveBuf, def, 4095);
-    saveBuf[4095] = 0;
-    free(def);
-    if (save_dialog(hwnd, saveBuf, 4096, L"", g_filter_open)) {
-      if (file_write_w(saveBuf, outs[0].data, outs[0].size)) {
-        msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
-      } else {
-        log_u8(hwnd, "解密完成，已保存。");
-        msg_u8(hwnd, "解密完成。", MB_ICONINFORMATION);
-      }
-    } else {
-      log_u8(hwnd, "已取消保存。");
-    }
-  } else {
-    static wchar_t saveBuf[4096];
-    SYSTEMTIME st;
-    wchar_t *fmt;
-    int okSave;
-    GetLocalTime(&st);
-    fmt = u82w("解密文件_%04d%02d%02d.zip");
-    wsprintfW(saveBuf, fmt, st.wYear, st.wMonth, st.wDay);
-    free(fmt);
-    okSave = save_dialog(hwnd, saveBuf, 4096, L"zip", g_filter_zip);
-    if (okSave) {
-      size_t zipLen;
-      unsigned char *zip = zip_build(outs, outCount, &zipLen);
-      if (file_write_w(saveBuf, zip, zipLen)) {
-        msg_u8(hwnd, "写入文件失败。", MB_ICONERROR);
-      } else {
-        sprintf(line, "解密完成，%d 个文件已打包保存。", outCount);
-        log_u8(hwnd, line);
-        msg_u8(hwnd, "解密完成，已打包保存为 ZIP。", MB_ICONINFORMATION);
-      }
-      free(zip);
-    } else {
-      log_u8(hwnd, "已取消保存。");
-    }
-  }
+  g_res = (ResItem *)calloc(outCount, sizeof(ResItem));
   for (i = 0; i < outCount; i++) {
-    free(outs[i].name);
-    free(outs[i].data);
+    g_res[i].e = outs[i];
+    g_res[i].checked = 1;
+  }
+  g_resCount = outCount;
+  {
+    char line[128];
+    sprintf(line, "解密完成：成功 %d 个，失败 %d 个。", outCount, failCount);
+    log_u8(hwnd, line);
   }
   free(outs);
   busy(hwnd, 0);
+  open_results(hwnd, failCount);
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_CREATE: {
       HWND c;
-      int y;
-      struct { int id; LPCWSTR cls; const char *text; DWORD style; int x, y, w, h; } C[] = {
-        {ID_RADIO_ENC, L"BUTTON", "加密", WS_CHILD | WS_VISIBLE | WS_GROUP | BS_AUTORADIOBUTTON, 16, 12, 70, 24},
-        {ID_RADIO_DEC, L"BUTTON", "解密", WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON, 96, 12, 70, 24},
-        {0, L"STATIC", "选择文件后点击下方按钮。密码会保存到加密文件名中，解密时自动识别。", WS_CHILD | WS_VISIBLE | SS_LEFT, 180, 16, 372, 20}
-      };
-      int ci;
-      g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-      for (ci = 0; ci < 3; ci++) {
-        wchar_t *t = u82w(C[ci].text);
-        c = CreateWindowExW(0, C[ci].cls, t, C[ci].style, C[ci].x, C[ci].y, C[ci].w, C[ci].h, hwnd, (HMENU)(LONG_PTR)C[ci].id, 0, 0);
-        SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
-        free(t);
-      }
-      g_hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", 0, WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_EXTENDEDSEL | LBS_NOINTEGRALHEIGHT, 16, 42, 536, 150, hwnd, (HMENU)ID_LIST, 0, 0);
+      wchar_t *t;
+      t = u82w("加密");
+      c = CreateWindowExW(0, L"BUTTON", t, WS_CHILD | WS_VISIBLE | WS_GROUP | BS_AUTORADIOBUTTON, S(16), S(12), S(70), S(24), hwnd, (HMENU)ID_RADIO_ENC, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      free(t);
+      t = u82w("解密");
+      c = CreateWindowExW(0, L"BUTTON", t, WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON, S(96), S(12), S(70), S(24), hwnd, (HMENU)ID_RADIO_DEC, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      free(t);
+      t = u82w("选择文件后点击下方按钮。密码会保存到加密文件名中，解密时自动识别。");
+      c = CreateWindowExW(0, L"STATIC", t, WS_CHILD | WS_VISIBLE | SS_LEFT, S(180), S(16), S(428), S(20), hwnd, (HMENU)ID_LBL_HINT, 0, 0);
+      SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
+      free(t);
+      g_hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", 0,
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_NOTIFY,
+          S(16), S(42), S(592), S(150), hwnd, (HMENU)ID_LIST, 0, 0);
       SendMessageW(g_hList, WM_SETFONT, (WPARAM)g_font, TRUE);
-      c = CreateWindowExW(0, L"BUTTON", u82w("添加文件..."), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 16, 200, 100, 28, hwnd, (HMENU)ID_BTN_ADD, 0, 0);
+      c = CreateWindowExW(0, L"BUTTON", u82w("添加文件..."), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(16), S(200), S(100), S(28), hwnd, (HMENU)ID_BTN_ADD, 0, 0);
       SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
-      c = CreateWindowExW(0, L"BUTTON", u82w("移除所选"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 122, 200, 90, 28, hwnd, (HMENU)ID_BTN_REMOVE, 0, 0);
+      c = CreateWindowExW(0, L"BUTTON", u82w("移除勾选"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(122), S(200), S(100), S(28), hwnd, (HMENU)ID_BTN_REMOVE, 0, 0);
       SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
-      c = CreateWindowExW(0, L"BUTTON", u82w("清空列表"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 218, 200, 90, 28, hwnd, (HMENU)ID_BTN_CLEAR, 0, 0);
+      c = CreateWindowExW(0, L"BUTTON", u82w("清空列表"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(228), S(200), S(90), S(28), hwnd, (HMENU)ID_BTN_CLEAR, 0, 0);
       SendMessageW(c, WM_SETFONT, (WPARAM)g_font, TRUE);
-      g_hChk = CreateWindowExW(0, L"BUTTON", u82w("显示密码"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 452, 202, 100, 24, hwnd, (HMENU)ID_CHK_SHOW, 0, 0);
+      g_hChk = CreateWindowExW(0, L"BUTTON", u82w("显示密码"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, S(502), S(202), S(106), S(24), hwnd, (HMENU)ID_CHK_SHOW, 0, 0);
       SendMessageW(g_hChk, WM_SETFONT, (WPARAM)g_font, TRUE);
-      g_hLblPwd = CreateWindowExW(0, L"STATIC", u82w("加密密码（至少 4 位）："), WS_CHILD | WS_VISIBLE | SS_LEFT, 16, 244, 250, 20, hwnd, (HMENU)ID_LBL_PWD, 0, 0);
+      g_hLblPwd = CreateWindowExW(0, L"STATIC", u82w("加密密码（至少 4 位）："), WS_CHILD | WS_VISIBLE | SS_LEFT, S(16), S(246), S(220), S(20), hwnd, (HMENU)ID_LBL_PWD, 0, 0);
       SendMessageW(g_hLblPwd, WM_SETFONT, (WPARAM)g_font, TRUE);
-      g_hPwd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", 0, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, 270, 240, 282, 24, hwnd, (HMENU)ID_EDIT_PWD, 0, 0);
+      g_hPwd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", 0, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, S(240), S(242), S(196), S(26), hwnd, (HMENU)ID_EDIT_PWD, 0, 0);
       SendMessageW(g_hPwd, WM_SETFONT, (WPARAM)g_font, TRUE);
       SendMessageW(g_hPwd, EM_SETLIMITTEXT, 64, 0);
-      g_hGo = CreateWindowExW(0, L"BUTTON", u82w("加密并保存..."), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 16, 276, 536, 40, hwnd, (HMENU)ID_BTN_GO, 0, 0);
+      g_hRand = CreateWindowExW(0, L"BUTTON", u82w("随机"), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, S(442), S(242), S(64), S(26), hwnd, (HMENU)ID_BTN_RAND, 0, 0);
+      SendMessageW(g_hRand, WM_SETFONT, (WPARAM)g_font, TRUE);
+      g_hGo = CreateWindowExW(0, L"BUTTON", u82w("加密并保存..."), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, S(16), S(282), S(592), S(38), hwnd, (HMENU)ID_BTN_GO, 0, 0);
       SendMessageW(g_hGo, WM_SETFONT, (WPARAM)g_font, TRUE);
-      g_hLog = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", 0, WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL, 16, 328, 536, 130, hwnd, (HMENU)ID_EDIT_LOG, 0, 0);
+      g_hLog = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", 0, WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL, S(16), S(328), S(592), S(132), hwnd, (HMENU)ID_EDIT_LOG, 0, 0);
       SendMessageW(g_hLog, WM_SETFONT, (WPARAM)g_font, TRUE);
       DragAcceptFiles(hwnd, TRUE);
-      (void)y;
       return 0;
+    }
+    case WM_MEASUREITEM: {
+      MEASUREITEMSTRUCT *mis = (MEASUREITEMSTRUCT *)lp;
+      if (mis->CtlID == ID_LIST) {
+        mis->itemHeight = S(24);
+        return TRUE;
+      }
+      return FALSE;
+    }
+    case WM_DRAWITEM: {
+      DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lp;
+      if (dis->CtlID == ID_LIST) {
+        draw_main_row(dis);
+        return TRUE;
+      }
+      return FALSE;
     }
     case WM_DROPFILES: {
       void *hd = (void *)wp;
@@ -1398,6 +2198,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_COMMAND: {
+      if (LOWORD(wp) == ID_LIST && HIWORD(wp) == LBN_SELCHANGE) {
+        int sel = (int)SendMessageW(g_hList, LB_GETCURSEL, 0, 0);
+        if (sel >= 0 && sel < g_count) {
+          g_checked[sel] = g_checked[sel] ? 0 : 1;
+          SendMessageW(g_hList, LB_SETCURSEL, (WPARAM)-1, 0);
+          InvalidateRect(g_hList, 0, FALSE);
+        }
+        return 0;
+      }
       switch (LOWORD(wp)) {
         case ID_RADIO_ENC:
           if (HIWORD(wp) == BN_CLICKED && g_mode != 0) set_mode(hwnd, 0);
@@ -1409,11 +2218,26 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
           add_files_dialog(hwnd);
           return 0;
         case ID_BTN_REMOVE:
-          remove_selected(hwnd);
+          remove_checked(hwnd);
           return 0;
         case ID_BTN_CLEAR:
           clear_files();
           return 0;
+        case ID_BTN_RAND: {
+          static const char chars[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#*-_=+";
+          unsigned char rb[14];
+          wchar_t out[32];
+          int i;
+          random_bytes(rb, 14);
+          for (i = 0; i < 14; i++) out[i] = (wchar_t)chars[rb[i] % (sizeof(chars) - 1)];
+          out[14] = 0;
+          SetWindowTextW(g_hPwd, out);
+          SendMessageW(g_hChk, BM_SETCHECK, 1, 0);
+          SendMessageW(g_hPwd, EM_SETPASSWORDCHAR, 0, 0);
+          InvalidateRect(g_hPwd, 0, TRUE);
+          SetFocus(g_hPwd);
+          return 0;
+        }
         case ID_CHK_SHOW: {
           int checked = (int)SendMessageW(g_hChk, BM_GETCHECK, 0, 0);
           SendMessageW(g_hPwd, EM_SETPASSWORDCHAR, checked == BST_CHECKED ? 0 : (WPARAM)0x25CF, 0);
@@ -1446,6 +2270,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show) {
   g_filter_open = make_filter("所有文件 (*.*)\0*.*\0加密文件 (*.enc)\0*.enc\0\0");
   g_filter_enc = make_filter("加密文件 (*.enc)\0*.enc\0所有文件 (*.*)\0*.*\0\0");
   g_filter_zip = make_filter("ZIP 压缩包 (*.zip)\0*.zip\0所有文件 (*.*)\0*.*\0\0");
+  enable_dpi();
+  {
+    HDC sdc = GetDC(0);
+    if (sdc) {
+      int dpi = GetDeviceCaps(sdc, 88);
+      if (dpi > 0) g_dpi = dpi;
+      ReleaseDC(0, sdc);
+    }
+  }
+  g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
   memset(&wc, 0, sizeof(wc));
   wc.cbSize = sizeof(wc);
   wc.lpfnWndProc = WndProc;
@@ -1457,9 +2291,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show) {
   wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
   wc.lpszClassName = L"CryptoGuardWnd";
   RegisterClassExW(&wc);
+  prev_register();
   {
     wchar_t *title = u82w("加密卫士 - 文件加密/解密");
-    hwnd = CreateWindowExW(0, L"CryptoGuardWnd", title, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, 584, 512, 0, 0, hInst, 0);
+    hwnd = CreateWindowExW(0, L"CryptoGuardWnd", title, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, S(640), S(540), 0, 0, hInst, 0);
     free(title);
   }
   g_hMain = hwnd;
