@@ -8,8 +8,9 @@
 
 - **任意文件加密**：图片、视频、音频、文档……都能加密为 `.enc` 密文
 - **密码写进文件名**：加密结果形如 `照片.jpg__pwd_abc123.enc`，解密时自动识别，无需记忆
-- **多文件自动打包**：一次多选，自动打包成一个密文；解密自动拆包，可逐个保存或一键导出 ZIP
-- **解密后可直接预览**：网页版 / Windows 版支持图片、视频、音频、文本预览
+- **随机密码**：一键生成 14 位强密码，省心
+- **多文件自动打包**：一次多选，自动打包成一个密文；解密先列出结果，可勾选逐个保存原文件，或一键打包 ZIP
+- **解密后可直接预览**：图片、文本三端均可（无法识别的按 HEX 预览）；音频 / 视频在手机版内置播放（进度条、播放暂停、正计时 / 倒计时），Windows 版用系统默认播放器打开
 - **完全离线**：所有数据仅在本机处理，不联网、不上传
 - **三端互通**：Windows、Android、网页加密的文件，三端都能解
 - **加密强度**：AES-256-GCM + PBKDF2 密钥拉伸（60 万次迭代）
@@ -20,8 +21,8 @@
 
 | 平台 | 发布文件 | 大小 | 要求 |
 | --- | --- | --- | --- |
-| Windows | `CryptoGuard-windows.exe` | 约 58 KB | Windows 7 及以上，免安装单文件 |
-| Android | `CryptoGuard-android.apk` | 约 33 KB | Android 5.0 及以上 |
+| Windows | `CryptoGuard-windows.exe` | 约 78 KB | Windows 7 及以上，免安装单文件，支持高清 DPI |
+| Android | `CryptoGuard-android.apk` | 约 41 KB | Android 5.0 及以上 |
 | 网页版 | `CryptoGuard-web.html` | 约 59 KB | Chrome / Edge / Safari，双击即用 |
 
 > 下载后文件可随意重命名，不影响使用。
@@ -81,3 +82,6 @@ powershell -ExecutionPolicy Bypass -File .\android\build.ps1
 - 网页版在浏览器缺少 WebCrypto 时（如 Safari 打开本地文件）自动切换内置纯 JS 加密，结果一致
 - 文件名中的密码是明文：如需分享又不想暴露密码，把文件名里 `__pwd_...` 段删除即可，解密时手动输入密码
 - 已通过测试：Windows↔网页 16 项、Android↔网页 19 项、Safari 兜底加密 25 项，全部通过
+
+
+本仓库内容来自大肥鱼老师，如有谬误请在ISSUE指出（你问我为什么不弄，因为我还不会，长大后再学习 qwq）
