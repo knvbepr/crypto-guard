@@ -61,6 +61,7 @@ powershell -ExecutionPolicy Bypass -File .\android\build.ps1
 ├── 加密卫士网页版.html   网页版（单文件应用，零依赖）
 ├── 使用说明.txt          用户手册
 ├── 更新日志.txt          版本记录
+├── 开发记录.txt          开发过程与设计说明
 ├── get-tools.ps1         下载编译工具
 ├── win32/                Windows 版源码
 │   ├── guard.c           主程序（Win32 API + 系统 bcrypt 加密 + 界面 + 测试命令行）
