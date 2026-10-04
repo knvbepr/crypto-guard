@@ -18,11 +18,13 @@
 
 前往 [Releases](https://github.com/knvbepr/crypto-guard/releases/latest) 下载：
 
-| 平台 | 文件 | 大小 | 要求 |
+| 平台 | 发布文件 | 大小 | 要求 |
 | --- | --- | --- | --- |
-| Windows | 加密卫士.exe | 约 58 KB | Windows 7 及以上，免安装单文件 |
-| Android | 加密卫士.apk | 约 33 KB | Android 5.0 及以上 |
-| 网页版 | 加密卫士网页版.html | 约 59 KB | Chrome / Edge / Safari，双击即用 |
+| Windows | `CryptoGuard-windows.exe` | 约 58 KB | Windows 7 及以上，免安装单文件 |
+| Android | `CryptoGuard-android.apk` | 约 33 KB | Android 5.0 及以上 |
+| 网页版 | `CryptoGuard-web.html` | 约 59 KB | Chrome / Edge / Safari，双击即用 |
+
+> 下载后文件可随意重命名，不影响使用。
 
 ## 使用方法
 
