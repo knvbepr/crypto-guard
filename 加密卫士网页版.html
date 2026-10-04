@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#3F51B5">
+<title>加密卫士 · 文件加解密</title>
+<style>
+:root{
+  --primary:#3F51B5;--primary-dark:#303F9F;--primary-mid:#3949AB;--primary-light:#C5CAE9;--primary-bg:#E8EAF6;
+  --accent:#FF4081;--accent-dark:#F50057;
+  --bg:#ECEFF1;--surface:#fff;
+  --text:rgba(0,0,0,.87);--text-2:rgba(0,0,0,.54);--text-3:rgba(0,0,0,.38);
+  --divider:rgba(0,0,0,.12);
+  --green:#43A047;--red:#E53935;--orange:#FB8C00;--blue:#1E88E5;--purple:#5E35B1;
+  --el1:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24);
+  --el2:0 2px 2px 0 rgba(0,0,0,.14),0 3px 1px -2px rgba(0,0,0,.12),0 1px 5px 0 rgba(0,0,0,.2);
+  --el4:0 4px 5px 0 rgba(0,0,0,.14),0 1px 10px 0 rgba(0,0,0,.12),0 2px 4px -1px rgba(0,0,0,.2);
+  --el8:0 8px 10px 1px rgba(0,0,0,.14),0 3px 14px 2px rgba(0,0,0,.12),0 5px 5px -3px rgba(0,0,0,.2);
+  --ease:cubic-bezier(.4,0,.2,1);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{font-family:Roboto,-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh}
+.hidden{display:none!important}
+.app-bar{background:var(--primary);color:#fff;box-shadow:var(--el4);position:sticky;top:0;z-index:100}
+.app-bar-row{max-width:760px;margin:0 auto;height:64px;display:flex;align-items:center;gap:14px;padding:0 20px}
+.brand-icon{width:30px;height:30px;fill:#fff;flex:0 0 auto}
+.app-bar h1{font-size:20px;font-weight:500;letter-spacing:.3px}
+.app-bar .sub{font-size:12px;opacity:.8;margin-top:1px}
+.tabs{max-width:760px;margin:0 auto;display:flex;position:relative}
+.tab{flex:1;height:48px;background:transparent;border:none;color:rgba(255,255,255,.7);font-family:inherit;font-size:14px;font-weight:500;letter-spacing:1px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;transition:color .2s var(--ease);--ink:rgba(255,255,255,.18)}
+.tab svg{width:18px;height:18px;fill:currentColor}
+.tab.active{color:#fff}
+.tab-indicator{position:absolute;bottom:0;left:0;width:50%;height:3px;background:var(--accent);transition:transform .3s var(--ease)}
+.container{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+.panel{display:none}
+.panel.active{display:block}
+.card{background:var(--surface);border-radius:2px;box-shadow:var(--el2);margin-bottom:16px;overflow:hidden}
+.card-head{display:flex;align-items:center;gap:10px;padding:16px 16px 13px;border-bottom:1px solid var(--divider)}
+.card-head svg{width:20px;height:20px;fill:var(--primary);flex:0 0 auto}
+.card-head.ok svg{fill:var(--green)}
+.card-head h2{font-size:16px;font-weight:500}
+.card-body{padding:16px}
+.dropzone{position:relative;display:block;border:2px dashed var(--primary-light);background:#F6F7FC;border-radius:2px;padding:26px 14px;text-align:center;cursor:pointer;transition:background .2s var(--ease),border-color .2s var(--ease);overflow:hidden;--ink:rgba(63,81,181,.1)}
+.dropzone:hover,.dropzone.dragover{border-color:var(--primary);background:#EDF0FB}
+.dropzone input{position:absolute;inset:0;top:0;left:0;right:0;bottom:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.dz-icon{width:46px;height:46px;fill:var(--primary);opacity:.85;margin-bottom:6px;pointer-events:none}
+.dz-title{font-size:15px;font-weight:500;margin-bottom:3px;pointer-events:none}
+.dz-sub{font-size:12px;color:var(--text-2);pointer-events:none}
+.file-list{list-style:none;margin-top:6px}
+.file-list:empty{display:none}
+.file-item{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,.07);animation:itemIn .25s var(--ease)}
+.file-item:last-child{border-bottom:none}
+@keyframes itemIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.type-badge{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.type-badge svg{width:22px;height:22px;fill:#fff}
+.file-meta{flex:1;min-width:0;display:block}
+.file-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.file-sub{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:1px}
+.icon-btn{width:36px;height:36px;border-radius:50%;border:none;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;position:relative;overflow:hidden;--ink:rgba(0,0,0,.1)}
+.icon-btn svg{width:20px;height:20px;fill:var(--text-2)}
+.icon-btn:hover{background:rgba(0,0,0,.06)}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:11px;font-size:11px;font-weight:500;background:#EEE;color:var(--text-2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.green{background:#E8F5E9;color:#2E7D32}
+.chip.orange{background:#FFF3E0;color:#EF6C00}
+.chip.blue{background:#E3F2FD;color:#1565C0}
+.file-summary{display:none;font-size:12px;color:var(--text-2);padding-top:10px}
+.file-summary.show{display:block}
+.md-field{position:relative;margin:24px 0 6px;padding-right:92px}
+.md-field input{width:100%;border:none;border-bottom:1px solid rgba(0,0,0,.42);background:transparent;padding:8px 0;font-size:16px;color:var(--text);outline:none;border-radius:0;font-family:inherit}
+.md-field input:focus{border-bottom-color:transparent}
+.md-field .bar{position:absolute;left:50%;bottom:0;width:0;height:2px;background:var(--primary);transition:width .25s var(--ease),left .25s var(--ease)}
+.md-field input:focus~.bar{width:100%;left:0}
+.md-field label{position:absolute;left:0;top:8px;font-size:16px;color:var(--text-2);pointer-events:none;transition:all .2s var(--ease);white-space:nowrap;max-width:calc(100% - 92px);overflow:hidden;text-overflow:ellipsis}
+.md-field input:focus~label,.md-field input:not(:placeholder-shown)~label{top:-12px;font-size:12px;color:var(--primary)}
+.field-actions{position:absolute;right:0;top:4px;display:flex;align-items:center;gap:0}
+.field-btn{border:none;background:transparent;color:var(--primary);font-family:inherit;font-size:12px;font-weight:500;letter-spacing:.5px;cursor:pointer;padding:8px;border-radius:2px;position:relative;overflow:hidden;--ink:rgba(63,81,181,.12)}
+.field-btn.eye{width:38px;height:38px;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--text-2)}
+.field-btn.eye svg{width:20px;height:20px;fill:currentColor}
+.note{font-size:12px;color:var(--text-2);line-height:1.7;margin-top:10px}
+.note.warn{color:#EF6C00}
+.progress-wrap{display:none;margin:16px 0 2px}
+.progress-wrap.show{display:block}
+.progress{position:relative;height:4px;background:var(--primary-light);overflow:hidden;border-radius:2px}
+.progress span{position:absolute;top:0;bottom:0;background:var(--accent);width:40%}
+.progress span:first-child{animation:indet1 1.6s infinite var(--ease)}
+.progress span:last-child{animation:indet2 1.6s infinite var(--ease)}
+@keyframes indet1{0%{left:-40%}60%{left:100%}100%{left:100%}}
+@keyframes indet2{0%{left:-40%}25%{left:0}60%{left:100%}100%{left:100%}}
+.status{font-size:12px;color:var(--text-2);margin-top:9px;text-align:center}
+.md-btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 16px;border:none;border-radius:2px;background:transparent;font-family:inherit;font-size:14px;font-weight:500;letter-spacing:.8px;cursor:pointer;transition:box-shadow .28s var(--ease),background .28s var(--ease);--ink:rgba(255,255,255,.35)}
+.md-btn.raised{background:var(--primary);color:#fff;box-shadow:var(--el2)}
+.md-btn.raised:hover:not(:disabled){background:var(--primary-mid);box-shadow:var(--el4)}
+.md-btn.raised:active:not(:disabled){box-shadow:var(--el8)}
+.md-btn.accent{background:var(--accent);color:#fff;--ink:rgba(255,255,255,.35)}
+.md-btn.accent:hover:not(:disabled){background:var(--accent-dark)}
+.md-btn.flat{color:var(--primary);--ink:rgba(63,81,181,.12)}
+.md-btn.flat:hover:not(:disabled){background:rgba(63,81,181,.08)}
+.md-btn.block{display:flex;width:100%;height:44px;margin-top:18px}
+.md-btn:disabled{background:#E0E0E0;color:var(--text-3);box-shadow:none;cursor:not-allowed}
+.md-btn svg{width:18px;height:18px;fill:currentColor}
+.md-ripple{position:relative;overflow:hidden}
+.ripple-ink{position:absolute;border-radius:50%;background:var(--ink,rgba(255,255,255,.35));transform:scale(0);animation:rippleAnim .6s ease-out;pointer-events:none}
+@keyframes rippleAnim{to{transform:scale(2.2);opacity:0}}
+.result-row{display:flex;align-items:center;gap:12px;padding:2px 0 6px}
+.badge{width:46px;height:46px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:.5px;flex:0 0 auto}
+.badge svg{width:24px;height:24px;fill:#fff}
+.badge.ok{background:var(--green)}
+.result-meta{flex:1;min-width:0}
+.result-name{font-size:14px;font-weight:500;word-break:break-all;line-height:1.45}
+.result-size{font-size:12px;color:var(--text-2);margin-top:3px}
+.snackbar{position:fixed;left:50%;bottom:24px;transform:translate(-50%,80px);background:#323232;color:#fff;font-size:14px;padding:13px 22px;border-radius:2px;box-shadow:var(--el4);z-index:1200;opacity:0;transition:transform .3s var(--ease),opacity .3s var(--ease);max-width:88vw;text-align:center;pointer-events:none}
+.snackbar.show{transform:translate(-50%,0);opacity:1}
+.snackbar.error{background:#D32F2F}
+.snackbar.success{background:#388E3C}
+.modal-backdrop{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .25s var(--ease)}
+.modal-backdrop.open{opacity:1;pointer-events:auto}
+.modal{background:#fff;border-radius:2px;box-shadow:var(--el8);width:100%;max-width:680px;max-height:86vh;display:flex;flex-direction:column;transform:scale(.96);transition:transform .25s var(--ease)}
+.modal-backdrop.open .modal{transform:scale(1)}
+.modal-head{display:flex;align-items:center;gap:8px;padding:13px 8px 11px 20px;border-bottom:1px solid var(--divider)}
+.modal-head h3{flex:1;font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.modal-body{flex:1;overflow:auto;padding:16px;background:#FAFAFA;min-height:80px}
+.modal-body img,.modal-body video{max-width:100%;max-height:58vh;display:block;margin:0 auto;border-radius:2px}
+.modal-body audio{width:100%;margin-top:20px;margin-bottom:20px}
+.modal-body pre{white-space:pre-wrap;word-break:break-all;font-family:'Roboto Mono','Consolas','Courier New',monospace;font-size:12px;line-height:1.6;background:#fff;border:1px solid var(--divider);border-radius:2px;padding:12px;max-height:58vh;overflow:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:6px;padding:9px 12px;border-top:1px solid var(--divider)}
+.foot{text-align:center;font-size:12px;color:var(--text-3);line-height:1.9;margin-top:6px}
+@media (max-width:600px){
+  .app-bar-row{height:56px;padding:0 16px}
+  .app-bar h1{font-size:18px}
+  .app-bar .sub{display:none}
+  .brand-icon{width:26px;height:26px}
+  .container{padding:12px 10px 40px}
+  .card-head{padding:14px 14px 11px}
+  .card-body{padding:14px}
+  .md-btn.block{height:46px}
+  .modal-foot .md-btn{flex:1}
+}
+</style>
+</head>
+<body>
+
+<header class="app-bar">
+  <div class="app-bar-row">
+    <svg class="brand-icon" viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+    <div>
+      <h1>加密卫士</h1>
+      <div class="sub">本地文件加解密 · AES-256</div>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab active md-ripple" data-tab="encrypt" type="button">
+      <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+      加密
+    </button>
+    <button class="tab md-ripple" data-tab="decrypt" type="button">
+      <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h2c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      解密
+    </button>
+    <span class="tab-indicator" id="tabIndicator"></span>
+  </nav>
+</header>
+
+<main class="container">
+
+  <section id="panel-encrypt" class="panel active">
+    <div class="card">
+      <div class="card-head">
+        <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+        <h2>选择要加密的文件</h2>
+      </div>
+      <div class="card-body">
+        <label class="dropzone md-ripple" id="encDrop">
+          <input type="file" id="encInput" multiple>
+          <svg class="dz-icon" viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+          <div class="dz-title">点击选择文件 或 拖拽到此处</div>
+          <div class="dz-sub">支持多选 · 图片 / 视频 / 音频 / 文本 / 任意格式</div>
+          <div class="dz-sub">多文件将自动打包为一个加密文件</div>
+        </label>
+        <ul class="file-list" id="encList"></ul>
+        <div class="file-summary" id="encSummary"></div>
+        <div class="md-field">
+          <input type="password" id="encPwd" placeholder=" " maxlength="64" autocomplete="new-password" spellcheck="false" autocapitalize="off" autocorrect="off">
+          <label for="encPwd">加密密码（至少 4 位）</label>
+          <div class="bar"></div>
+          <div class="field-actions">
+            <button type="button" class="field-btn md-ripple" id="genPwd">随机</button>
+            <button type="button" class="field-btn eye md-ripple" id="encPwdEye" title="显示/隐藏密码"></button>
+          </div>
+        </div>
+        <p class="note">密码会保存在加密文件名中（如 照片.jpg__pwd_abc123.enc），解密时自动识别，无需再次输入。</p>
+        <div class="progress-wrap" id="encProgress">
+          <div class="progress"><span></span><span></span></div>
+          <div class="status" id="encStatus"></div>
+        </div>
+        <button class="md-btn raised block md-ripple" id="encBtn" disabled type="button">加密并保存</button>
+      </div>
+    </div>
+    <div class="card hidden" id="encResultCard">
+      <div class="card-head ok">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        <h2>加密完成</h2>
+      </div>
+      <div class="card-body">
+        <div class="result-row">
+          <div class="badge"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg></div>
+          <div class="result-meta">
+            <div class="result-name" id="encResultName"></div>
+            <div class="result-size" id="encResultSize"></div>
+          </div>
+        </div>
+        <p class="note">密码已写入文件名。将该文件发送给任何人，对方用本页面即可解密（需知道密码已被包含在文件名中）。</p>
+        <button class="md-btn accent block md-ripple" id="encDownload" type="button">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          保存加密文件
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section id="panel-decrypt" class="panel">
+    <div class="card">
+      <div class="card-head">
+        <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h2c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+        <h2>选择要解密的密文文件（.enc）</h2>
+      </div>
+      <div class="card-body">
+        <label class="dropzone md-ripple" id="decDrop">
+          <input type="file" id="decInput" multiple accept=".enc">
+          <svg class="dz-icon" viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h2c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+          <div class="dz-title">点击选择密文 或 拖拽到此处</div>
+          <div class="dz-sub">支持多选 · 密码将从文件名自动识别</div>
+        </label>
+        <ul class="file-list" id="decList"></ul>
+        <div class="file-summary" id="decSummary"></div>
+        <div class="md-field">
+          <input type="password" id="decPwd" placeholder=" " maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off">
+          <label for="decPwd">手动密码（仅文件名中无密码时使用）</label>
+          <div class="bar"></div>
+          <div class="field-actions">
+            <button type="button" class="field-btn eye md-ripple" id="decPwdEye" title="显示/隐藏密码"></button>
+          </div>
+        </div>
+        <p class="note" id="decHint">选择密文文件后，将自动从文件名读取密码。</p>
+        <div class="progress-wrap" id="decProgress">
+          <div class="progress"><span></span><span></span></div>
+          <div class="status" id="decStatus"></div>
+        </div>
+        <button class="md-btn raised block md-ripple" id="decBtn" disabled type="button">
+          <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h2c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+          开始解密
+        </button>
+      </div>
+    </div>
+    <div class="card hidden" id="decResultCard">
+      <div class="card-head ok">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        <h2>解密结果</h2>
+      </div>
+      <div class="card-body">
+        <div class="file-sub" style="margin-bottom:6px"><span class="chip blue" id="decResultCount"></span></div>
+        <ul class="file-list" id="decResultList"></ul>
+        <button class="md-btn raised block md-ripple" id="saveAllBtn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 8h-4v-2h4v2zm0-4h-4V8h4v2z"/></svg>
+          全部保存为 ZIP
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    加密算法 AES-256-GCM · 密钥派生 PBKDF2（600,000 次）<br>
+    所有数据仅在本机处理，不会上传服务器
+  </div>
+</main>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">预览</h3>
+      <button class="icon-btn md-ripple" id="modalCloseX" type="button"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="md-btn flat md-ripple" id="modalCloseBtn" type="button">关闭</button>
+      <button class="md-btn raised md-ripple" id="modalSave" type="button">保存文件</button>
+    </div>
+  </div>
+</div>
+
+<div class="snackbar" id="snackbar"></div>
+
+<script>
+(function(){
+'use strict';
+
+var ENC_MAGIC=[0x45,0x4E,0x43,0x01];
+var PKG_MAGIC=[0x4D,0x50,0x4B,0x47];
+var SALT_LEN=16,IV_LEN=12,PWD_TAG='__pwd_',ITER=600000;
+
+var ICONS={
+  lock:'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z',
+  image:'M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z',
+  video:'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z',
+  audio:'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z',
+  text:'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
+  archive:'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 8h-4v-2h4v2zm0-4h-4V8h4v2z',
+  file:'M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z',
+  close:'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  eye:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
+  eyeOff:'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z',
+  save:'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
+  warning:'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'
+};
+
+var MIME={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',bmp:'image/bmp',svg:'image/svg+xml',ico:'image/x-icon',avif:'image/avif',mp4:'video/mp4',webm:'video/webm',mov:'video/quicktime',m4v:'video/mp4',ogv:'video/ogg',avi:'video/x-msvideo',mkv:'video/x-matroska',mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',m4a:'audio/mp4',aac:'audio/aac',flac:'audio/flac',opus:'audio/opus',txt:'text/plain;charset=utf-8',md:'text/markdown;charset=utf-8',json:'application/json;charset=utf-8',xml:'application/xml;charset=utf-8',csv:'text/csv;charset=utf-8',log:'text/plain;charset=utf-8',html:'text/html;charset=utf-8',htm:'text/html;charset=utf-8',css:'text/css;charset=utf-8',js:'text/javascript;charset=utf-8'};
+var TXT_EXT=['txt','md','json','xml','csv','log','yml','yaml','ini','conf','js','ts','css','html','htm','py','java','c','cpp','h','hpp','cs','go','rs','rb','php','sh','bat','sql'];
+var IMG_EXT=['png','jpg','jpeg','gif','webp','bmp','svg','ico','avif'];
+var VID_EXT=['mp4','webm','mov','m4v','ogv','avi','mkv'];
+var AUD_EXT=['mp3','wav','ogg','m4a','aac','flac','opus'];
+
+var encoder=new TextEncoder();
+var decoder=new TextDecoder();
+
+function $(s,r){return (r||document).querySelector(s);}
+function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function svg(path){return '<svg viewBox="0 0 24 24"><path d="'+path+'"/></svg>';}
+function fmtSize(n){
+  if(!n)return '0 B';
+  var u=['B','KB','MB','GB'],i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++;}
+  return (i===0?n:n.toFixed(1))+' '+u[i];
+}
+function extOf(name){var m=/\.([^.]+)$/.exec(name);return m?m[1].toLowerCase():'';}
+function typeOf(name){
+  var e=extOf(name);
+  if(IMG_EXT.indexOf(e)>-1)return 'image';
+  if(VID_EXT.indexOf(e)>-1)return 'video';
+  if(AUD_EXT.indexOf(e)>-1)return 'audio';
+  if(TXT_EXT.indexOf(e)>-1)return 'text';
+  if(e==='zip')return 'archive';
+  return 'other';
+}
+function typeColor(t){return {image:'#43A047',video:'#E53935',audio:'#8E24AA',text:'#1E88E5',archive:'#FB8C00',other:'#546E7A'}[t]||'#546E7A';}
+function typeLabel(t){return {image:'图片',video:'视频',audio:'音频',text:'文本',archive:'压缩包',other:'文件'}[t]||'文件';}
+function typeIconPath(t){return t==='image'?ICONS.image:t==='video'?ICONS.video:t==='audio'?ICONS.audio:t==='text'?ICONS.text:t==='archive'?ICONS.archive:ICONS.file;}
+function mimeOf(name){return MIME[extOf(name)]||'application/octet-stream';}
+function dateStamp(){
+  var d=new Date();
+  function p(n){return String(n).padStart(2,'0');}
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate());
+}
+function clipName(name,max){
+  if(name.length<=max)return name;
+  return name.slice(0,max);
+}
+
+function encodePwdForName(pwd){
+  return pwd.replace(/[\x00-\x1F\x7F%\\/:*?"<>|\[\]]/g,function(c){
+    return '%'+c.charCodeAt(0).toString(16).toUpperCase().padStart(2,'0');
+  });
+}
+function decodePwdFromName(s){
+  return s.replace(/%([0-9A-Fa-f]{2})/g,function(m,h){return String.fromCharCode(parseInt(h,16));});
+}
+function extractPwdFromEncName(fileName){
+  var idx=fileName.toLowerCase().lastIndexOf(PWD_TAG);
+  if(idx<0)return null;
+  var rest=fileName.slice(idx+PWD_TAG.length);
+  if(!/\.enc$/i.test(rest))return null;
+  var p=decodePwdFromName(rest.slice(0,-4));
+  return p.length?p:null;
+}
+
+var HAS_SUBTLE=typeof crypto!=='undefined'&&!!crypto.subtle&&typeof crypto.subtle.importKey==='function'&&typeof crypto.subtle.deriveBits==='function';
+
+function readFileBytes(file){
+  if(file&&typeof file.arrayBuffer==='function'){return file.arrayBuffer().then(function(b){return new Uint8Array(b);});}
+  return new Promise(function(resolve,reject){
+    var fr=new FileReader();
+    fr.onload=function(){resolve(new Uint8Array(fr.result));};
+    fr.onerror=function(){reject(fr.error||new Error('读取文件失败'));};
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+var SHA256_H0=new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+var SHA256_K=new Uint32Array([
+0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+
+function sha256Compress(h,p,off){
+  var w=new Uint32Array(64);
+  var i;
+  for(i=0;i<16;i++){w[i]=((p[off+i*4]<<24)|(p[off+i*4+1]<<16)|(p[off+i*4+2]<<8)|p[off+i*4+3])>>>0;}
+  for(i=16;i<64;i++){
+    var x=w[i-15],y=w[i-2];
+    var s0=((x>>>7)|(x<<25))^((x>>>18)|(x<<14))^(x>>>3);
+    var s1=((y>>>17)|(y<<15))^((y>>>19)|(y<<13))^(y>>>10);
+    w[i]=(w[i-16]+s0+w[i-7]+s1)>>>0;
+  }
+  var a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
+  for(i=0;i<64;i++){
+    var S1=((e>>>6)|(e<<26))^((e>>>11)|(e<<21))^((e>>>25)|(e<<7));
+    var ch=(e&f)^((~e)&g);
+    var t1=(hh+S1+ch+SHA256_K[i]+w[i])>>>0;
+    var S0=((a>>>2)|(a<<30))^((a>>>13)|(a<<19))^((a>>>22)|(a<<10));
+    var maj=(a&b)^(a&c)^(b&c);
+    var t2=(S0+maj)>>>0;
+    hh=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0;
+  }
+  h[0]=(h[0]+a)>>>0;h[1]=(h[1]+b)>>>0;h[2]=(h[2]+c)>>>0;h[3]=(h[3]+d)>>>0;
+  h[4]=(h[4]+e)>>>0;h[5]=(h[5]+f)>>>0;h[6]=(h[6]+g)>>>0;h[7]=(h[7]+hh)>>>0;
+}
+
+function sha256Bytes(data){
+  var h=SHA256_H0.slice();
+  var len=data.length;
+  var full=len&~63;
+  var o;
+  for(o=0;o<full;o+=64){sha256Compress(h,data,o);}
+  var rem=len-full;
+  var pad=new Uint8Array(rem<56?64:128);
+  for(o=0;o<rem;o++){pad[o]=data[full+o];}
+  pad[rem]=0x80;
+  var bitsLo=(len*8)>>>0;
+  var bitsHi=Math.floor(len*8/4294967296);
+  var end=pad.length;
+  pad[end-8]=(bitsHi>>>24)&0xFF;pad[end-7]=(bitsHi>>>16)&0xFF;pad[end-6]=(bitsHi>>>8)&0xFF;pad[end-5]=bitsHi&0xFF;
+  pad[end-4]=(bitsLo>>>24)&0xFF;pad[end-3]=(bitsLo>>>16)&0xFF;pad[end-2]=(bitsLo>>>8)&0xFF;pad[end-1]=bitsLo&0xFF;
+  for(o=0;o<pad.length;o+=64){sha256Compress(h,pad,o);}
+  var out=new Uint8Array(32);
+  for(o=0;o<8;o++){out[o*4]=h[o]>>>24;out[o*4+1]=(h[o]>>>16)&0xFF;out[o*4+2]=(h[o]>>>8)&0xFF;out[o*4+3]=h[o]&0xFF;}
+  return out;
+}
+
+function hmacCtxNew(key){
+  var k=key;
+  if(k.length>64){k=sha256Bytes(k);}
+  var ipad=new Uint8Array(64),opad=new Uint8Array(64);
+  for(var i=0;i<64;i++){var b=i<k.length?k[i]:0;ipad[i]=b^0x36;opad[i]=b^0x5C;}
+  var hi=SHA256_H0.slice();sha256Compress(hi,ipad,0);
+  var ho=SHA256_H0.slice();sha256Compress(ho,opad,0);
+  return [hi,ho];
+}
+
+function jsPbkdf2(pwd,salt,iters,dkLen){
+  var ctx=hmacCtxNew(pwd);
+  var block=new Uint8Array(64);
+  var st1=new Uint32Array(8),st2=new Uint32Array(8);
+  var dig=new Uint8Array(32);
+  function mac(msg){
+    block.fill(0);
+    block.set(msg,0);
+    block[msg.length]=0x80;
+    var bits=(64+msg.length)*8;
+    block[62]=(bits>>>8)&0xFF;block[63]=bits&0xFF;
+    st1.set(ctx[0]);sha256Compress(st1,block,0);
+    for(var i=0;i<8;i++){dig[i*4]=st1[i]>>>24;dig[i*4+1]=(st1[i]>>>16)&0xFF;dig[i*4+2]=(st1[i]>>>8)&0xFF;dig[i*4+3]=st1[i]&0xFF;}
+    block.fill(0);
+    block.set(dig,0);
+    block[32]=0x80;
+    block[62]=0x03;block[63]=0x00;
+    st2.set(ctx[1]);sha256Compress(st2,block,0);
+    for(i=0;i<8;i++){dig[i*4]=st2[i]>>>24;dig[i*4+1]=(st2[i]>>>16)&0xFF;dig[i*4+2]=(st2[i]>>>8)&0xFF;dig[i*4+3]=st2[i]&0xFF;}
+    return dig;
+  }
+  var out=new Uint8Array(dkLen);
+  var blocks=Math.ceil(dkLen/32);
+  var msg=new Uint8Array(salt.length+4);
+  for(var b=1;b<=blocks;b++){
+    msg.set(salt,0);
+    msg[salt.length]=(b>>>24)&0xFF;msg[salt.length+1]=(b>>>16)&0xFF;msg[salt.length+2]=(b>>>8)&0xFF;msg[salt.length+3]=b&0xFF;
+    var u=mac(msg).slice(0,32);
+    var t=u.slice(0,32);
+    for(var j=1;j<iters;j++){
+      u=mac(u).slice(0,32);
+      for(var k=0;k<32;k++){t[k]^=u[k];}
+    }
+    out.set(t.subarray(0,Math.min(32,dkLen-(b-1)*32)),(b-1)*32);
+  }
+  return out;
+}
+
+var AES_SBOX=new Uint8Array([
+0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16]);
+
+var AES_XTIME=(function(){
+  var t=new Uint8Array(256);
+  for(var i=0;i<256;i++){t[i]=((i<<1)^((i&0x80)?0x1B:0))&0xFF;}
+  return t;
+})();
+
+function aes256Expand(key){
+  var w=new Uint32Array(60);
+  var i;
+  for(i=0;i<8;i++){w[i]=((key[i*4]<<24)|(key[i*4+1]<<16)|(key[i*4+2]<<8)|key[i*4+3])>>>0;}
+  var rcon=1;
+  for(i=8;i<60;i++){
+    var t=w[i-1];
+    if(i%8===0){
+      t=((t<<8)|(t>>>24))>>>0;
+      t=((AES_SBOX[(t>>>24)&0xFF]<<24)|(AES_SBOX[(t>>>16)&0xFF]<<16)|(AES_SBOX[(t>>>8)&0xFF]<<8)|AES_SBOX[t&0xFF])>>>0;
+      t=(t^(rcon<<24))>>>0;
+      rcon=((rcon<<1)^((rcon&0x80)?0x1B:0))&0xFF;
+    }else if(i%8===4){
+      t=((AES_SBOX[(t>>>24)&0xFF]<<24)|(AES_SBOX[(t>>>16)&0xFF]<<16)|(AES_SBOX[(t>>>8)&0xFF]<<8)|AES_SBOX[t&0xFF])>>>0;
+    }
+    w[i]=(w[i-8]^t)>>>0;
+  }
+  return w;
+}
+
+function aesBlock(rk,input,output,s,t){
+  var i,c,r;
+  for(i=0;i<16;i++){s[i]=input[i];}
+  for(c=0;c<4;c++){var w0=rk[c];s[4*c]^=(w0>>>24)&0xFF;s[4*c+1]^=(w0>>>16)&0xFF;s[4*c+2]^=(w0>>>8)&0xFF;s[4*c+3]^=w0&0xFF;}
+  for(r=1;r<14;r++){
+    for(i=0;i<16;i++){t[i]=AES_SBOX[s[i]];}
+    for(var row=0;row<4;row++){for(c=0;c<4;c++){s[row+4*c]=t[row+4*((c+row)&3)];}}
+    for(c=0;c<4;c++){
+      var o=4*c;
+      var a0=s[o],a1=s[o+1],a2=s[o+2],a3=s[o+3];
+      s[o]=AES_XTIME[a0]^(AES_XTIME[a1]^a1)^a2^a3;
+      s[o+1]=a0^AES_XTIME[a1]^(AES_XTIME[a2]^a2)^a3;
+      s[o+2]=a0^a1^AES_XTIME[a2]^(AES_XTIME[a3]^a3);
+      s[o+3]=(AES_XTIME[a0]^a0)^a1^a2^AES_XTIME[a3];
+    }
+    for(c=0;c<4;c++){var w=rk[4*r+c];s[4*c]^=(w>>>24)&0xFF;s[4*c+1]^=(w>>>16)&0xFF;s[4*c+2]^=(w>>>8)&0xFF;s[4*c+3]^=w&0xFF;}
+  }
+  for(i=0;i<16;i++){t[i]=AES_SBOX[s[i]];}
+  for(var row2=0;row2<4;row2++){for(c=0;c<4;c++){s[row2+4*c]=t[row2+4*((c+row2)&3)];}}
+  for(c=0;c<4;c++){var w2=rk[56+c];s[4*c]^=(w2>>>24)&0xFF;s[4*c+1]^=(w2>>>16)&0xFF;s[4*c+2]^=(w2>>>8)&0xFF;s[4*c+3]^=w2&0xFF;}
+  for(i=0;i<16;i++){output[i]=s[i];}
+}
+
+function ghashMul(x0,x1,x2,x3,y0,y1,y2,y3){
+  var z0=0,z1=0,z2=0,z3=0;
+  var v0=y0,v1=y1,v2=y2,v3=y3;
+  for(var i=0;i<128;i++){
+    var bit;
+    if(i<32){bit=(x0>>>(31-i))&1;}
+    else if(i<64){bit=(x1>>>(63-i))&1;}
+    else if(i<96){bit=(x2>>>(95-i))&1;}
+    else{bit=(x3>>>(127-i))&1;}
+    if(bit){z0^=v0;z1^=v1;z2^=v2;z3^=v3;}
+    var lsb=v3&1;
+    v3=((v3>>>1)|((v2&1)<<31))>>>0;
+    v2=((v2>>>1)|((v1&1)<<31))>>>0;
+    v1=((v1>>>1)|((v0&1)<<31))>>>0;
+    v0=((v0>>>1)^(lsb?0xE1000000:0))>>>0;
+  }
+  return [z0,z1,z2,z3];
+}
+
+function ghashBytes(y,h0,h1,h2,h3,bytes){
+  var len=bytes.length;
+  for(var off=0;off<len;off+=16){
+    var b0=0,b1=0,b2=0,b3=0;
+    for(var i=0;i<16;i++){
+      var v=off+i<len?bytes[off+i]:0;
+      if(i<4){b0=(b0<<8)|v;}
+      else if(i<8){b1=(b1<<8)|v;}
+      else if(i<12){b2=(b2<<8)|v;}
+      else{b3=(b3<<8)|v;}
+    }
+    y[0]=(y[0]^b0)>>>0;y[1]=(y[1]^b1)>>>0;y[2]=(y[2]^b2)>>>0;y[3]=(y[3]^b3)>>>0;
+    var m=ghashMul(y[0],y[1],y[2],y[3],h0,h1,h2,h3);
+    y[0]=m[0];y[1]=m[1];y[2]=m[2];y[3]=m[3];
+  }
+  return y;
+}
+
+function ghashBlock(y,h0,h1,h2,h3,b){
+  var b0=((b[0]<<24)|(b[1]<<16)|(b[2]<<8)|b[3])>>>0;
+  var b1=((b[4]<<24)|(b[5]<<16)|(b[6]<<8)|b[7])>>>0;
+  var b2=((b[8]<<24)|(b[9]<<16)|(b[10]<<8)|b[11])>>>0;
+  var b3=((b[12]<<24)|(b[13]<<16)|(b[14]<<8)|b[15])>>>0;
+  y[0]=(y[0]^b0)>>>0;y[1]=(y[1]^b1)>>>0;y[2]=(y[2]^b2)>>>0;y[3]=(y[3]^b3)>>>0;
+  var m=ghashMul(y[0],y[1],y[2],y[3],h0,h1,h2,h3);
+  y[0]=m[0];y[1]=m[1];y[2]=m[2];y[3]=m[3];
+  return y;
+}
+
+function gcmAuthError(){
+  var e=new Error('密码错误或文件已损坏');
+  e.name='OperationError';
+  return e;
+}
+
+function jsGcm(key,iv,aad,input,decryptFlag){
+  var ct=decryptFlag?input.subarray(0,input.length-16):input;
+  var rk=aes256Expand(key);
+  var sb=new Uint8Array(16),tb=new Uint8Array(16),tmp=new Uint8Array(16);
+  aesBlock(rk,new Uint8Array(16),tmp,sb,tb);
+  var h0=((tmp[0]<<24)|(tmp[1]<<16)|(tmp[2]<<8)|tmp[3])>>>0;
+  var h1=((tmp[4]<<24)|(tmp[5]<<16)|(tmp[6]<<8)|tmp[7])>>>0;
+  var h2=((tmp[8]<<24)|(tmp[9]<<16)|(tmp[10]<<8)|tmp[11])>>>0;
+  var h3=((tmp[12]<<24)|(tmp[13]<<16)|(tmp[14]<<8)|tmp[15])>>>0;
+  var j0=new Uint8Array(16);
+  j0.set(iv,0);
+  j0[15]=1;
+  var ekj0=new Uint8Array(16);
+  aesBlock(rk,j0,ekj0,sb,tb);
+  var out=new Uint8Array(ct.length);
+  var counter=new Uint8Array(16);
+  counter.set(j0,0);
+  for(var off=0;off<ct.length;off+=16){
+    for(var ci=15;ci>=12;ci--){counter[ci]=(counter[ci]+1)&0xFF;if(counter[ci]!==0){break;}}
+    aesBlock(rk,counter,tmp,sb,tb);
+    var n=Math.min(16,ct.length-off);
+    for(var i=0;i<n;i++){out[off+i]=ct[off+i]^tmp[i];}
+  }
+  var y=[0,0,0,0];
+  y=ghashBytes(y,h0,h1,h2,h3,aad);
+  y=ghashBytes(y,h0,h1,h2,h3,decryptFlag?ct:out);
+  var lb=new Uint8Array(16);
+  var aBits=aad.length*8;
+  var cBits=ct.length*8;
+  var aHi=Math.floor(aBits/4294967296),aLo=aBits>>>0;
+  var cHi=Math.floor(cBits/4294967296),cLo=cBits>>>0;
+  lb[0]=(aHi>>>24)&0xFF;lb[1]=(aHi>>>16)&0xFF;lb[2]=(aHi>>>8)&0xFF;lb[3]=aHi&0xFF;
+  lb[4]=(aLo>>>24)&0xFF;lb[5]=(aLo>>>16)&0xFF;lb[6]=(aLo>>>8)&0xFF;lb[7]=aLo&0xFF;
+  lb[8]=(cHi>>>24)&0xFF;lb[9]=(cHi>>>16)&0xFF;lb[10]=(cHi>>>8)&0xFF;lb[11]=cHi&0xFF;
+  lb[12]=(cLo>>>24)&0xFF;lb[13]=(cLo>>>16)&0xFF;lb[14]=(cLo>>>8)&0xFF;lb[15]=cLo&0xFF;
+  y=ghashBlock(y,h0,h1,h2,h3,lb);
+  var tag=new Uint8Array(16);
+  for(i=0;i<16;i++){tag[i]=(((y[i>>2]>>>((3-(i&3))*8))&0xFF)^ekj0[i]);}
+  if(decryptFlag){
+    for(i=0;i<16;i++){
+      if(tag[i]!==input[input.length-16+i]){throw gcmAuthError();}
+    }
+    return out;
+  }
+  var res=new Uint8Array(ct.length+16);
+  res.set(out,0);
+  res.set(tag,ct.length);
+  return res;
+}
+
+async function deriveKeyMaterial(pwd,salt){
+  if(HAS_SUBTLE){
+    var km=await crypto.subtle.importKey('raw',encoder.encode(pwd),'PBKDF2',false,['deriveBits']);
+    var bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:salt,iterations:ITER,hash:'SHA-256'},km,256);
+    return new Uint8Array(bits);
+  }
+  return jsPbkdf2(encoder.encode(pwd),salt,ITER,32);
+}
+
+async function aesGcmEncrypt(key,iv,aad,data){
+  if(HAS_SUBTLE){
+    var k=await crypto.subtle.importKey('raw',key,{name:'AES-GCM'},false,['encrypt']);
+    return new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:iv,additionalData:aad},k,data));
+  }
+  return jsGcm(key,iv,aad,data,false);
+}
+
+async function aesGcmDecrypt(key,iv,aad,ct){
+  if(HAS_SUBTLE){
+    var k=await crypto.subtle.importKey('raw',key,{name:'AES-GCM'},false,['decrypt']);
+    return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:iv,additionalData:aad},k,ct));
+  }
+  return jsGcm(key,iv,aad,ct,true);
+}
+
+async function encryptContainer(dataBytes,pwd,displayName){
+  var salt=crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  var iv=crypto.getRandomValues(new Uint8Array(IV_LEN));
+  var key=await deriveKeyMaterial(pwd,salt);
+  var nameBytes=encoder.encode(displayName);
+  var ct=await aesGcmEncrypt(key,iv,nameBytes,dataBytes);
+  var out=new Uint8Array(4+SALT_LEN+IV_LEN+2+nameBytes.length+ct.length);
+  var o=0;
+  out.set(ENC_MAGIC,o);o+=4;
+  out.set(salt,o);o+=SALT_LEN;
+  out.set(iv,o);o+=IV_LEN;
+  out[o]=(nameBytes.length>>8)&0xFF;out[o+1]=nameBytes.length&0xFF;o+=2;
+  out.set(nameBytes,o);o+=nameBytes.length;
+  out.set(ct,o);
+  return out;
+}
+
+async function decryptContainer(u8,pwd){
+  if(u8.length<4+SALT_LEN+IV_LEN+2)throw new Error('无效的密文文件格式');
+  for(var i=0;i<4;i++){if(u8[i]!==ENC_MAGIC[i])throw new Error('无效的密文文件格式');}
+  var o=4;
+  var salt=u8.slice(o,o+SALT_LEN);o+=SALT_LEN;
+  var iv=u8.slice(o,o+IV_LEN);o+=IV_LEN;
+  var nameLen=(u8[o]<<8)|u8[o+1];o+=2;
+  if(o+nameLen>u8.length)throw new Error('无效的密文文件格式');
+  var displayName=decoder.decode(u8.slice(o,o+nameLen));o+=nameLen;
+  var key=await deriveKeyMaterial(pwd,salt);
+  var pt=await aesGcmDecrypt(key,iv,encoder.encode(displayName),u8.slice(o));
+  return {data:new Uint8Array(pt),name:displayName||'解密文件'};
+}
+
+function buildPackage(items){
+  var total=8;
+  var metas=[];
+  for(var i=0;i<items.length;i++){
+    var nb=encoder.encode(items[i].name);
+    metas.push({nb:nb,size:items[i].bytes.length});
+    total+=2+nb.length+8+items[i].bytes.length;
+  }
+  var out=new Uint8Array(total);
+  var dv=new DataView(out.buffer);
+  out.set(PKG_MAGIC,0);
+  dv.setUint32(4,items.length,true);
+  var o=8;
+  for(var j=0;j<items.length;j++){
+    dv.setUint16(o,metas[j].nb.length,true);o+=2;
+    out.set(metas[j].nb,o);o+=metas[j].nb.length;
+    dv.setUint32(o,metas[j].size%4294967296,true);o+=4;
+    dv.setUint32(o,Math.floor(metas[j].size/4294967296),true);o+=4;
+  }
+  for(var k=0;k<items.length;k++){
+    out.set(items[k].bytes,o);o+=items[k].bytes.length;
+  }
+  return out;
+}
+
+function parsePackage(u8){
+  if(u8.length<8)return null;
+  for(var i=0;i<4;i++){if(u8[i]!==PKG_MAGIC[i])return null;}
+  var dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  var count=dv.getUint32(4,true);
+  var o=8;
+  var metas=[];
+  for(var j=0;j<count;j++){
+    if(o+2>u8.length)throw new Error('打包数据损坏');
+    var nl=dv.getUint16(o,true);o+=2;
+    var name=decoder.decode(u8.slice(o,o+nl));o+=nl;
+    var low=dv.getUint32(o,true);o+=4;
+    var high=dv.getUint32(o,true);o+=4;
+    metas.push({name:name,size:high*4294967296+low});
+  }
+  var files=[];
+  for(var k=0;k<metas.length;k++){
+    files.push({name:metas[k].name,bytes:u8.subarray(o,o+metas[k].size)});
+    o+=metas[k].size;
+  }
+  return files;
+}
+
+var CRC_TABLE=(function(){
+  var t=new Uint32Array(256);
+  for(var n=0;n<256;n++){
+    var c=n;
+    for(var k=0;k<8;k++){c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);}
+    t[n]=c>>>0;
+  }
+  return t;
+})();
+function crc32(u8){
+  var c=0xFFFFFFFF;
+  for(var i=0;i<u8.length;i++){c=CRC_TABLE[(c^u8[i])&0xFF]^(c>>>8);}
+  return (c^0xFFFFFFFF)>>>0;
+}
+
+function buildZip(entries){
+  var chunks=[];
+  var central=[];
+  var offset=0;
+  var now=new Date();
+  var dosTime=((now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1))&0xFFFF;
+  var dosDate=(((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate())&0xFFFF;
+  for(var i=0;i<entries.length;i++){
+    var nameBytes=encoder.encode(entries[i].name);
+    var data=entries[i].data;
+    var crc=crc32(data);
+    var size=data.length;
+    var local=new Uint8Array(30+nameBytes.length);
+    var lv=new DataView(local.buffer);
+    lv.setUint32(0,0x04034b50,true);
+    lv.setUint16(4,20,true);
+    lv.setUint16(6,0x0800,true);
+    lv.setUint16(8,0,true);
+    lv.setUint16(10,dosTime,true);
+    lv.setUint16(12,dosDate,true);
+    lv.setUint32(14,crc,true);
+    lv.setUint32(18,size,true);
+    lv.setUint32(22,size,true);
+    lv.setUint16(26,nameBytes.length,true);
+    lv.setUint16(28,0,true);
+    local.set(nameBytes,30);
+    chunks.push(local,data);
+    var cd=new Uint8Array(46+nameBytes.length);
+    var cv=new DataView(cd.buffer);
+    cv.setUint32(0,0x02014b50,true);
+    cv.setUint16(4,20,true);
+    cv.setUint16(6,20,true);
+    cv.setUint16(8,0x0800,true);
+    cv.setUint16(10,0,true);
+    cv.setUint16(12,dosTime,true);
+    cv.setUint16(14,dosDate,true);
+    cv.setUint32(16,crc,true);
+    cv.setUint32(20,size,true);
+    cv.setUint32(24,size,true);
+    cv.setUint16(28,nameBytes.length,true);
+    cv.setUint16(30,0,true);
+    cv.setUint16(32,0,true);
+    cv.setUint16(34,0,true);
+    cv.setUint16(36,0,true);
+    cv.setUint32(38,0,true);
+    cv.setUint32(42,offset,true);
+    cd.set(nameBytes,46);
+    central.push(cd);
+    offset+=local.length+size;
+  }
+  var centralSize=central.reduce(function(a,b){return a+b.length;},0);
+  var eocd=new Uint8Array(22);
+  var ev=new DataView(eocd.buffer);
+  ev.setUint32(0,0x06054b50,true);
+  ev.setUint16(8,entries.length,true);
+  ev.setUint16(10,entries.length,true);
+  ev.setUint32(12,centralSize,true);
+  ev.setUint32(16,offset,true);
+  return new Blob(chunks.concat(central,[eocd]),{type:'application/zip'});
+}
+
+var snackTimer=null;
+function snack(msg,type){
+  var el=$('#snackbar');
+  el.textContent=msg;
+  el.className='snackbar show'+(type?' '+type:'');
+  clearTimeout(snackTimer);
+  snackTimer=setTimeout(function(){el.classList.remove('show');},2800);
+}
+
+function downloadBytes(bytes,name,mime){
+  var blob=new Blob([bytes],{type:mime||'application/octet-stream'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},30000);
+}
+
+document.addEventListener('pointerdown',function(e){
+  var target=e.target;
+  if(!target||!target.closest)return;
+  var el=target.closest('.md-ripple');
+  if(!el||el.disabled)return;
+  var r=el.getBoundingClientRect();
+  var d=Math.max(r.width,r.height)*2;
+  var ink=document.createElement('span');
+  ink.className='ripple-ink';
+  ink.style.width=ink.style.height=d+'px';
+  ink.style.left=(e.clientX-r.left-d/2)+'px';
+  ink.style.top=(e.clientY-r.top-d/2)+'px';
+  el.appendChild(ink);
+  setTimeout(function(){ink.remove();},640);
+});
+
+function showProgress(sel,on){$(sel).classList.toggle('show',on);}
+function setStatus(sel,msg){$(sel).textContent=msg;}
+function wireEye(btn,input){
+  btn.innerHTML=svg(ICONS.eye);
+  btn.addEventListener('click',function(){
+    var show=input.type==='password';
+    input.type=show?'text':'password';
+    btn.innerHTML=svg(show?ICONS.eyeOff:ICONS.eye);
+  });
+}
+
+$$('.tab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    $$('.tab').forEach(function(t){t.classList.remove('active');});
+    tab.classList.add('active');
+    var idx=tab.getAttribute('data-tab')==='decrypt'?1:0;
+    $('#tabIndicator').style.transform='translateX('+(idx*100)+'%)';
+    $('#panel-encrypt').classList.toggle('active',idx===0);
+    $('#panel-decrypt').classList.toggle('active',idx===1);
+  });
+});
+
+function wireDrop(zone,handler){
+  ['dragenter','dragover'].forEach(function(ev){
+    zone.addEventListener(ev,function(e){e.preventDefault();zone.classList.add('dragover');});
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    zone.addEventListener(ev,function(e){e.preventDefault();zone.classList.remove('dragover');});
+  });
+  zone.addEventListener('drop',function(e){
+    if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)handler(e.dataTransfer.files);
+  });
+}
+
+var encFiles=[];
+var decFiles=[];
+var encResult=null;
+var decResults=[];
+var modalUrl=null;
+
+var encListEl=$('#encList'),encSummaryEl=$('#encSummary');
+var decListEl=$('#decList'),decSummaryEl=$('#decSummary');
+
+function addEncFiles(fileList){
+  Array.prototype.slice.call(fileList).forEach(function(f){encFiles.push(f);});
+  renderEncList();
+}
+function addDecFiles(fileList){
+  Array.prototype.slice.call(fileList).forEach(function(f){decFiles.push(f);});
+  renderDecList();
+}
+
+function updateEncBtn(){
+  $('#encBtn').disabled=!(encFiles.length>0&&$('#encPwd').value.length>=4);
+}
+function needManual(){
+  return decFiles.some(function(f){return !extractPwdFromEncName(f.name);});
+}
+function updateDecBtn(){
+  $('#decBtn').disabled=!(decFiles.length>0&&(!needManual()||$('#decPwd').value.length>0));
+}
+
+function renderEncList(){
+  encListEl.innerHTML='';
+  encFiles.forEach(function(f,i){
+    var t=typeOf(f.name);
+    var li=document.createElement('li');
+    li.className='file-item';
+    li.innerHTML='<span class="type-badge" style="background:'+typeColor(t)+'">'+svg(typeIconPath(t))+'</span>'+
+      '<span class="file-meta"><span class="file-name">'+esc(f.name)+'</span><span class="file-sub">'+fmtSize(f.size)+' · '+typeLabel(t)+'</span></span>'+
+      '<button class="icon-btn md-ripple" data-rm="'+i+'" title="移除" type="button">'+svg(ICONS.close)+'</button>';
+    encListEl.appendChild(li);
+  });
+  if(encFiles.length){
+    var total=encFiles.reduce(function(a,f){return a+f.size;},0);
+    encSummaryEl.textContent=encFiles.length+' 个文件 · 共 '+fmtSize(total)+(encFiles.length>1?' · 将打包为 1 个加密文件':'');
+    encSummaryEl.classList.add('show');
+  }else{
+    encSummaryEl.classList.remove('show');
+  }
+  updateEncBtn();
+}
+
+function renderDecList(){
+  decListEl.innerHTML='';
+  decFiles.forEach(function(f,i){
+    var pwd=extractPwdFromEncName(f.name);
+    var chip=pwd
+      ?'<span class="chip green" title="密码: '+esc(pwd)+'">密码 '+esc(pwd.length>14?pwd.slice(0,14)+'…':pwd)+'</span>'
+      :'<span class="chip orange">需手动密码</span>';
+    var li=document.createElement('li');
+    li.className='file-item';
+    li.innerHTML='<span class="type-badge" style="background:'+typeColor('other')+'">'+svg(ICONS.lock)+'</span>'+
+      '<span class="file-meta"><span class="file-name">'+esc(f.name)+'</span><span class="file-sub">'+fmtSize(f.size)+' '+chip+'</span></span>'+
+      '<button class="icon-btn md-ripple" data-rm="'+i+'" title="移除" type="button">'+svg(ICONS.close)+'</button>';
+    decListEl.appendChild(li);
+  });
+  if(decFiles.length){
+    var total=decFiles.reduce(function(a,f){return a+f.size;},0);
+    var auto=decFiles.filter(function(f){return !!extractPwdFromEncName(f.name);}).length;
+    decSummaryEl.textContent=decFiles.length+' 个密文 · 共 '+fmtSize(total)+' · '+auto+' 个已从文件名识别密码';
+    decSummaryEl.classList.add('show');
+    $('#decHint').textContent=auto===decFiles.length
+      ?'将使用文件名中的密码自动解密，无需手动输入。'
+      :(auto>0?'部分文件已自动识别密码；其余文件需在下方输入手动密码。':'未在文件名中发现密码，请在下方输入解密密码。');
+    $('#decHint').className='note'+(auto===decFiles.length?'':' warn');
+  }else{
+    decSummaryEl.classList.remove('show');
+    $('#decHint').textContent='选择密文文件后，将自动从文件名读取密码。';
+    $('#decHint').className='note';
+  }
+  updateDecBtn();
+}
+
+encListEl.addEventListener('click',function(e){
+  var b=e.target.closest?e.target.closest('[data-rm]'):null;
+  if(!b)return;
+  encFiles.splice(parseInt(b.getAttribute('data-rm'),10),1);
+  renderEncList();
+});
+decListEl.addEventListener('click',function(e){
+  var b=e.target.closest?e.target.closest('[data-rm]'):null;
+  if(!b)return;
+  decFiles.splice(parseInt(b.getAttribute('data-rm'),10),1);
+  renderDecList();
+});
+
+$('#encInput').addEventListener('change',function(e){
+  addEncFiles(e.target.files);
+  e.target.value='';
+});
+$('#decInput').addEventListener('change',function(e){
+  addDecFiles(e.target.files);
+  e.target.value='';
+});
+wireDrop($('#encDrop'),addEncFiles);
+wireDrop($('#decDrop'),addDecFiles);
+
+$('#encPwd').addEventListener('input',updateEncBtn);
+$('#decPwd').addEventListener('input',updateDecBtn);
+wireEye($('#encPwdEye'),$('#encPwd'));
+wireEye($('#decPwdEye'),$('#decPwd'));
+
+$('#genPwd').addEventListener('click',function(){
+  var chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#*-_=+';
+  var rnd=crypto.getRandomValues(new Uint8Array(14));
+  var out='';
+  for(var i=0;i<rnd.length;i++)out+=chars[rnd[i]%chars.length];
+  var input=$('#encPwd');
+  input.value=out;
+  input.type='text';
+  $('#encPwdEye').innerHTML=svg(ICONS.eyeOff);
+  updateEncBtn();
+  snack('已生成随机密码：'+out,'success');
+});
+
+$('#encBtn').addEventListener('click',async function(){
+  var pwd=$('#encPwd').value;
+  if(!encFiles.length){snack('请先选择要加密的文件','error');return;}
+  if(pwd.length<4){snack('密码至少 4 位','error');return;}
+  var btn=$('#encBtn');
+  btn.disabled=true;
+  btn.textContent='加密中...';
+  $('#encResultCard').classList.add('hidden');
+  showProgress('#encProgress',true);
+  try{
+    var payload,displayName,outBase;
+    if(encFiles.length===1){
+      setStatus('#encStatus','正在读取文件...');
+      payload=new Uint8Array(await readFileBytes(encFiles[0]));
+      displayName=encFiles[0].name;
+      outBase=clipName(encFiles[0].name,100);
+    }else{
+      var items=[];
+      for(var i=0;i<encFiles.length;i++){
+        setStatus('#encStatus','正在读取文件 '+(i+1)+'/'+encFiles.length+' ...');
+        items.push({name:encFiles[i].name,bytes:new Uint8Array(await readFileBytes(encFiles[i]))});
+      }
+      setStatus('#encStatus','正在打包 '+items.length+' 个文件...');
+      payload=buildPackage(items);
+      displayName='打包 '+items.length+' 个文件';
+      outBase=items.length+'个文件_'+dateStamp();
+    }
+    setStatus('#encStatus','正在加密（AES-256）...');
+    var encBytes=await encryptContainer(payload,pwd,displayName);
+    var outName=outBase+PWD_TAG+encodePwdForName(pwd)+'.enc';
+    encResult={bytes:encBytes,name:outName};
+    $('#encResultName').textContent=outName;
+    $('#encResultSize').textContent='密文大小 '+fmtSize(encBytes.length)+' · 原始数据 '+fmtSize(payload.length);
+    $('#encResultCard').classList.remove('hidden');
+    snack('加密完成，密码已保存到文件名','success');
+    setTimeout(function(){$('#encResultCard').scrollIntoView({behavior:'smooth',block:'nearest'});},80);
+  }catch(err){
+    snack('加密失败：'+((err&&err.message)||'未知错误'),'error');
+  }finally{
+    btn.textContent='加密并保存';
+    updateEncBtn();
+    showProgress('#encProgress',false);
+  }
+});
+
+$('#encDownload').addEventListener('click',function(){
+  if(encResult)downloadBytes(encResult.bytes,encResult.name,'application/octet-stream');
+});
+
+$('#decBtn').addEventListener('click',async function(){
+  if(!decFiles.length){snack('请先选择密文文件','error');return;}
+  var manualPwd=$('#decPwd').value;
+  var btn=$('#decBtn');
+  btn.disabled=true;
+  btn.textContent='解密中...';
+  decResults=[];
+  showProgress('#decProgress',true);
+  var okCount=0,failCount=0;
+  for(var i=0;i<decFiles.length;i++){
+    var f=decFiles[i];
+    setStatus('#decStatus','正在解密 '+(i+1)+'/'+decFiles.length+'：'+f.name);
+    try{
+      var namePwd=extractPwdFromEncName(f.name);
+      var cands=[];
+      if(namePwd&&cands.indexOf(namePwd)<0)cands.push(namePwd);
+      if(manualPwd&&cands.indexOf(manualPwd)<0)cands.push(manualPwd);
+      if(!cands.length)throw new Error('文件名中未包含密码，且未输入手动密码');
+      var buf=new Uint8Array(await readFileBytes(f));
+      var plain=null,lastErr=null;
+      for(var c=0;c<cands.length;c++){
+        try{plain=await decryptContainer(buf,cands[c]);break;}catch(ex){lastErr=ex;}
+      }
+      if(!plain)throw lastErr||new Error('解密失败');
+      var packed=parsePackage(plain.data);
+      if(packed){
+        packed.forEach(function(item){
+          decResults.push({ok:true,name:item.name,bytes:item.bytes,type:typeOf(item.name),source:f.name});
+          okCount++;
+        });
+      }else{
+        decResults.push({ok:true,name:plain.name,bytes:plain.data,type:typeOf(plain.name),source:f.name});
+        okCount++;
+      }
+    }catch(err){
+      var reason='解密失败';
+      if(err&&err.name==='OperationError')reason='密码错误或文件已损坏';
+      else if(err&&err.message)reason=err.message;
+      decResults.push({ok:false,name:f.name,reason:reason,source:f.name});
+      failCount++;
+    }
+  }
+  renderDecResults();
+  btn.textContent='开始解密';
+  updateDecBtn();
+  showProgress('#decProgress',false);
+  if(okCount&&!failCount)snack('解密完成，共 '+okCount+' 个文件','success');
+  else if(okCount)snack('完成 '+okCount+' 个，失败 '+failCount+' 个','error');
+  else snack('解密失败','error');
+});
+
+function renderDecResults(){
+  var list=$('#decResultList');
+  list.innerHTML='';
+  decResults.forEach(function(r,i){
+    var li=document.createElement('li');
+    li.className='file-item';
+    if(r.ok){
+      var actions='<button class="icon-btn md-ripple" data-dl="'+i+'" title="保存" type="button">'+svg(ICONS.save)+'</button>';
+      if(r.type!=='other'&&r.type!=='archive'){
+        actions='<button class="icon-btn md-ripple" data-pv="'+i+'" title="预览" type="button">'+svg(ICONS.eye)+'</button>'+actions;
+      }
+      li.innerHTML='<span class="type-badge" style="background:'+typeColor(r.type)+'">'+svg(typeIconPath(r.type))+'</span>'+
+        '<span class="file-meta"><span class="file-name">'+esc(r.name)+'</span><span class="file-sub">'+fmtSize(r.bytes.length)+' · '+typeLabel(r.type)+'</span></span>'+actions;
+    }else{
+      li.innerHTML='<span class="type-badge" style="background:'+typeColor('other')+'">'+svg(ICONS.warning)+'</span>'+
+        '<span class="file-meta"><span class="file-name">'+esc(r.name)+'</span><span class="file-sub" style="color:var(--red)">'+esc(r.reason)+'</span></span>';
+    }
+    list.appendChild(li);
+  });
+  var ok=decResults.filter(function(r){return r.ok;});
+  var total=ok.reduce(function(a,r){return a+r.bytes.length;},0);
+  $('#decResultCount').textContent=ok.length+' 个文件 · '+fmtSize(total);
+  $('#decResultCard').classList.toggle('hidden',decResults.length===0);
+  $('#saveAllBtn').classList.toggle('hidden',ok.length<2);
+  if(decResults.length)setTimeout(function(){$('#decResultCard').scrollIntoView({behavior:'smooth',block:'nearest'});},80);
+}
+
+$('#decResultList').addEventListener('click',function(e){
+  var t=e.target;
+  if(!t.closest)return;
+  var pv=t.closest('[data-pv]');
+  if(pv){openPreview(parseInt(pv.getAttribute('data-pv'),10));return;}
+  var dl=t.closest('[data-dl]');
+  if(dl){
+    var r=decResults[parseInt(dl.getAttribute('data-dl'),10)];
+    if(r&&r.ok)downloadBytes(r.bytes,r.name,mimeOf(r.name));
+  }
+});
+
+$('#saveAllBtn').addEventListener('click',function(){
+  var ok=decResults.filter(function(r){return r.ok;});
+  if(!ok.length)return;
+  var used={};
+  var entries=ok.map(function(r){
+    var name=r.name;
+    if(used[name]){
+      var dot=name.lastIndexOf('.');
+      var base=dot>0?name.slice(0,dot):name;
+      var ext=dot>0?name.slice(dot):'';
+      var n=2;
+      while(used[base+'('+n+')'+ext])n++;
+      name=base+'('+n+')'+ext;
+    }
+    used[name]=true;
+    return {name:name,data:r.bytes};
+  });
+  var blob=buildZip(entries);
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='解密文件_'+dateStamp()+'.zip';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},30000);
+  snack('已打包保存 '+entries.length+' 个文件','success');
+});
+
+function openPreview(i){
+  var r=decResults[i];
+  if(!r||!r.ok)return;
+  if(r.bytes.length>1024*1024*1024){snack('文件过大，不支持在线预览','error');return;}
+  $('#modalTitle').textContent=r.name;
+  var body=$('#modalBody');
+  if(modalUrl){URL.revokeObjectURL(modalUrl);modalUrl=null;}
+  body.innerHTML='';
+  if(r.type==='text'){
+    var limit=300000;
+    var slice=r.bytes.length>limit?r.bytes.slice(0,limit):r.bytes;
+    var txt=decoder.decode(slice);
+    if(r.bytes.length>limit)txt+='\n\n...（内容过长，仅显示前 300KB）';
+    var pre=document.createElement('pre');
+    pre.textContent=txt;
+    body.appendChild(pre);
+  }else{
+    var blob=new Blob([r.bytes],{type:mimeOf(r.name)});
+    modalUrl=URL.createObjectURL(blob);
+    var el;
+    if(r.type==='image'){el=document.createElement('img');el.src=modalUrl;}
+    else if(r.type==='video'){el=document.createElement('video');el.src=modalUrl;el.controls=true;el.setAttribute('playsinline','');}
+    else{el=document.createElement('audio');el.src=modalUrl;el.controls=true;}
+    body.appendChild(el);
+  }
+  $('#modalSave').onclick=function(){downloadBytes(r.bytes,r.name,mimeOf(r.name));};
+  $('#modal').classList.add('open');
+}
+function closePreview(){
+  $('#modal').classList.remove('open');
+  if(modalUrl){URL.revokeObjectURL(modalUrl);modalUrl=null;}
+}
+$('#modalCloseX').addEventListener('click',closePreview);
+$('#modalCloseBtn').addEventListener('click',closePreview);
+$('#modal').addEventListener('click',function(e){if(e.target===this)closePreview();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closePreview();});
+
+renderEncList();
+renderDecList();
+
+})();
+</script>
+</body>
+</html>

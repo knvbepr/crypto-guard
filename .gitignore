@@ -1,0 +1,17 @@
+# 临时编译工具链（由 get-tools.ps1 下载）
+/_tools/
+
+# 构建产物（自动生成）
+/android/out/
+/android/debug.keystore
+/android/res/
+/win32/app.ico
+
+# 成品二进制（发布在 GitHub Releases，不进入仓库）
+/加密卫士.exe
+/加密卫士.apk
+
+# 系统杂项
+Thumbs.db
+.DS_Store
+*.log
